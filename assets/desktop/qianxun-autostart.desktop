@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=QianXun
+Name[zh_CN]=千寻
+GenericName[zh_CN]=文件秒搜
+Comment[zh_CN]=像 Everything 一样按文件名瞬间搜索全盘文件
+Exec=@EXEC@ --hidden
+Icon=@ICON@
+Terminal=false
+Categories=Utility;System;FileTools;
+Keywords=search;everything;find;file;搜索;查找;
+StartupNotify=true
+StartupWMClass=qianxun
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

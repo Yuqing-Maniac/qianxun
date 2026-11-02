@@ -1,0 +1,174 @@
+{
+ "fps": 30,
+ "width": 1920,
+ "height": 1080,
+ "total": 81.765,
+ "sentences": [
+  {
+   "id": "p01",
+   "chapter": "hook",
+   "text": "在麒麟系统里找一个文件，还在一层层翻目录吗？",
+   "start": 0.8,
+   "dur": 4.440816
+  },
+  {
+   "id": "p02",
+   "chapter": "hook",
+   "text": "用惯了 Windows 上的 Everything，到了麒麟却无处可寻。",
+   "start": 5.591,
+   "dur": 4.493061
+  },
+  {
+   "id": "p03",
+   "chapter": "title",
+   "text": "千寻，银河麒麟上的文件秒搜工具。",
+   "start": 11.184,
+   "dur": 3.604898
+  },
+  {
+   "id": "p04",
+   "chapter": "search",
+   "text": "输入关键词，结果即刻呈现。",
+   "start": 15.989,
+   "dur": 3.082449
+  },
+  {
+   "id": "p05",
+   "chapter": "search",
+   "text": "百万级文件，每次检索只需几十毫秒。",
+   "start": 19.371,
+   "dur": 3.63102
+  },
+  {
+   "id": "p06",
+   "chapter": "how",
+   "text": "全盘文件名常驻内存索引；",
+   "start": 24.002,
+   "dur": 2.951837
+  },
+  {
+   "id": "p07",
+   "chapter": "how",
+   "text": "系统级实时监控，新建、删除、改名，一秒之内同步；",
+   "start": 27.304,
+   "dur": 4.571429
+  },
+  {
+   "id": "p08",
+   "chapter": "how",
+   "text": "索引缓存落盘，再次启动不到一秒。",
+   "start": 32.226,
+   "dur": 3.369796
+  },
+  {
+   "id": "p09",
+   "chapter": "syntax",
+   "text": "搜索语法与 Everything 一致：",
+   "start": 36.595,
+   "dur": 2.586122
+  },
+  {
+   "id": "p10",
+   "chapter": "syntax",
+   "text": "空格表示与，竖线表示或，感叹号表示排除；",
+   "start": 39.431,
+   "dur": 4.440816
+  },
+  {
+   "id": "p11",
+   "chapter": "syntax",
+   "text": "通配符、扩展名、文件大小、修改日期，随心组合。",
+   "start": 44.222,
+   "dur": 5.067755
+  },
+  {
+   "id": "p12",
+   "chapter": "filter",
+   "text": "一键筛选文档、图片、视频，点击表头即可排序。",
+   "start": 50.19,
+   "dur": 4.963265
+  },
+  {
+   "id": "p13",
+   "chapter": "ops",
+   "text": "右键打开、定位文件夹、复制、重命名，一气呵成；",
+   "start": 56.053,
+   "dur": 4.832653
+  },
+  {
+   "id": "p14",
+   "chapter": "ops",
+   "text": "托盘常驻，快捷键随叫随到。",
+   "start": 61.286,
+   "dur": 3.082449
+  },
+  {
+   "id": "p15",
+   "chapter": "offline",
+   "text": "自带运行库，无需联网，x86 与飞腾平台都能用；",
+   "start": 65.368,
+   "dur": 5.041633
+  },
+  {
+   "id": "p16",
+   "chapter": "offline",
+   "text": "安装包与绿色版，任选其一。",
+   "start": 70.76,
+   "dur": 2.899592
+  },
+  {
+   "id": "p17",
+   "chapter": "outro",
+   "text": "千寻：千寻之深，一寻即得。",
+   "start": 74.76,
+   "dur": 4.205714
+  }
+ ],
+ "scenes": [
+  {
+   "id": "hook",
+   "start": 0,
+   "end": 10.484
+  },
+  {
+   "id": "title",
+   "start": 10.484,
+   "end": 15.389
+  },
+  {
+   "id": "search",
+   "start": 15.389,
+   "end": 23.502
+  },
+  {
+   "id": "how",
+   "start": 23.502,
+   "end": 36.095
+  },
+  {
+   "id": "syntax",
+   "start": 36.095,
+   "end": 49.74
+  },
+  {
+   "id": "filter",
+   "start": 49.74,
+   "end": 55.603
+  },
+  {
+   "id": "ops",
+   "start": 55.603,
+   "end": 64.868
+  },
+  {
+   "id": "offline",
+   "start": 64.868,
+   "end": 74.16
+  },
+  {
+   "id": "outro",
+   "start": 74.16,
+   "end": 81.765
+  }
+ ]
+}

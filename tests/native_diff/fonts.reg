@@ -1,0 +1,19 @@
+REGEDIT4
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes]
+"Microsoft YaHei UI"="Noto Sans CJK SC"
+"Microsoft YaHei"="Noto Sans CJK SC"
+"SimSun"="Noto Sans CJK SC"
+"NSimSun"="Noto Sans CJK SC"
+"SimHei"="Noto Sans CJK SC"
+"MS Shell Dlg"="Noto Sans CJK SC"
+"MS Shell Dlg 2"="Noto Sans CJK SC"
+"Segoe UI"="Noto Sans CJK SC"
+"Tahoma"="Noto Sans CJK SC"
+"Microsoft Sans Serif"="Noto Sans CJK SC"
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink]
+"Segoe UI"="NotoSansCJK-Regular.ttc,Noto Sans CJK SC"
+"Tahoma"="NotoSansCJK-Regular.ttc,Noto Sans CJK SC"
+"Microsoft Sans Serif"="NotoSansCJK-Regular.ttc,Noto Sans CJK SC"
+"Lucida Sans Unicode"="NotoSansCJK-Regular.ttc,Noto Sans CJK SC"

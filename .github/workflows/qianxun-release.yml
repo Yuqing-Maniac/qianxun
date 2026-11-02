@@ -1,0 +1,44 @@
+# 千寻：在 Releases 页面发布标签为 qianxun-vX.Y.Z 的版本后，从零构建全部发布物并挂到该版本下
+name: qianxun-release
+on:
+  release:
+    types: [published]
+  workflow_dispatch:   # 手动运行：只构建并上传构建产物，不挂到 Releases
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'qianxun-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      QX_WORK: ${{ github.workspace }}/_work
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装构建依赖
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q python3-pip nodejs npm zip unzip dpkg-dev binutils librsvg2-bin imagemagick \
+            mingw-w64 g++-mingw-w64-x86-64-win32 g++-mingw-w64-i686-win32 libz-mingw-w64-dev wine64 wine
+      - name: 构建全部发布物
+        run: bash build/build_all.sh
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: qianxun-dist
+          path: |
+            _work/dist/*.deb
+            _work/dist/*.tar.gz
+            _work/dist/*.zip
+            _work/dist/*.exe
+            _work/dist/SHA256SUMS.txt
+      - name: 挂到 Releases
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd _work/dist
+          gh release upload "${{ github.event.release.tag_name }}" --repo "$GITHUB_REPOSITORY" --clobber \
+            *.deb *.tar.gz *.zip *.exe SHA256SUMS.txt

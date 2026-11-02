@@ -1,0 +1,24 @@
+# 千寻 QianXun — Windows 原生版（Win7–Win11）规格
+
+目标：用 C++17 + 纯 Win32 API（不用 MFC/ATL/Qt/.NET）重写千寻 Windows 版，mingw-w64 交叉编译，**单个 exe、零运行库依赖、无需管理员权限、支持 Windows 7 SP1 至 Windows 11**，x64 与 x86 各一个。功能、搜索语法、界面布局与 Python 版（`/home/claude/build/app/qianxun.py`，Windows 分支见 `IS_WIN`；说明见 `/home/claude/build/win/README_WIN.txt`）保持一致。
+
+## 构建约束
+- 编译：`x86_64-w64-mingw32-g++` 与 `i686-w64-mingw32-g++`（posix 或 win32 线程模型均可，优先 win32 线程 + `std::thread` 可用的变体；若 std::thread 不可用，用 `CreateThread`），`-O2 -s -static -static-libgcc -static-libstdc++ -municode -mwindows -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0601 -DWINVER=0x0601`。产物只依赖系统 DLL（kernel32、user32、gdi32、shell32、ole32、comctl32、shlwapi、advapi32、uxtheme、msvcrt），用 `x86_64-w64-mingw32-objdump -p` 核查导入表，**不得出现 Win8+ 才有的导入**（如 GetTickCount64 可用〔Vista+〕，但 `SetThreadDescription`、`GetDpiForWindow`、`SetProcessDpiAwarenessContext`、`PathCch*`、`api-ms-win-*` 等须用 GetProcAddress 动态取）。
+- 资源：图标 `/home/claude/build/win/launcher/` 下已有的 .ico（或由 `/home/claude/build/app/qianxun.svg` 生成），VERSIONINFO（FileDescription=千寻 文件秒搜，ProductName=千寻，FileVersion=1.1.0.0），manifest：asInvoker、Common Controls v6、supportedOS Win7/8/8.1/10、dpiAware=true + dpiAwareness=PerMonitorV2。
+- 源码目录 `/home/claude/build/native/src/`，构建脚本 `/home/claude/build/native/build.sh` → `/home/claude/build/native/out/QianXun-x64.exe`、`QianXun-x86.exe`。
+
+## 功能（对标 Python 版）
+1. **索引**：所有本地固定盘（GetLogicalDrives + GetDriveTypeW）；选项可加可移动盘（默认开）、网络盘（默认关）、或改为指定文件夹。内置排除 `X:\$Recycle.Bin`、`X:\System Volume Information`、`C:\Windows\WinSxS`，可编辑排除列表。扫描用 `FindFirstFileExW(FindExInfoBasic, FIND_FIRST_EX_LARGE_FETCH)`（Win7 支持；失败回退普通 FindFirstFileW），同时取大小与修改时间；**不进入重解析点**（联接点/符号链接只收录不递归）；无权限目录静默跳过。多线程扫描（每盘一线程，可选目录级工作队列）。数据结构要省内存：名称存连续字符串池（UTF-16），条目＝父目录号+名称偏移/长度+标志+大小+时间，另存小写折叠（`LCMapStringW(LCMAP_LOWERCASE)` 或 CharLowerBuffW）副本用于不区分大小写匹配。百万条目内存目标 < 150 MB。
+2. **实时监控**：每个根一个 `ReadDirectoryChangesW`（递归、FILE_NAME|DIR_NAME|SIZE|LAST_WRITE，OVERLAPPED，专用线程 + `WaitForMultipleObjects`）；事件映射到父目录 → 去抖 300 ms 后重扫该目录（差量增删）；修改事件只刷新大小/时间；缓冲溢出（0 字节）→ 该根全量比对；盘拔出／句柄失效 → 撤根；`WM_DEVICECHANGE`（DBT_DEVICEQUERYREMOVE 时关闭该盘句柄，避免“设备正在使用”）+ 每 2 秒 GetLogicalDrives 比较 → 增删根。
+3. **缓存**：二进制索引缓存 `%LOCALAPPDATA%\QianXun\index.bin`（含版本号、根列表、排除列表校验，不匹配则重建）；退出与每 30 分钟保存；启动先加载缓存再后台同步（对每个目录比对修改时间，有变化才重扫）。配置 `config.ini`（或 json）；exe 同目录存在 `portable.txt` 时改存 exe 同目录 `data\`。日志 `qianxun.log`。
+4. **搜索语法**（与 Python 版逐条一致，语义以 `qianxun.py` 的 Query/Searcher 为准）：空格＝与、`|`＝或（`a | b` 两侧带空格同样为或）、`!`＝非、`*`/`?` 通配（匹配整个文件名；含路径时允许前缀）、`"…"` 短语、含 `\` 或 `/` 的词按完整路径匹配（`/` 等同 `\`）、`ext:a;b`、`file:`、`folder:`/`dir:`、`path:`、`regex:`（用 std::wregex ECMAScript；编译失败给出“语法错误”而不崩溃；对灾难性正则设上限）、`size:`（>, >=, <, <=, =, a..b, 单位 b/kb/mb/gb/tb，别名 empty/tiny/small/medium/large/huge/gigantic）、`dm:`（today/yesterday/thisweek/thismonth/thisyear/lastNd|w|m|y/YYYY[-MM[-DD]]/a..b）。开关：区分大小写 Ctrl+I、全字匹配 Ctrl+B、匹配路径 Ctrl+U、正则 Ctrl+R。筛选下拉：所有/文件夹/文档/图片/音频/视频/压缩包/可执行/代码（扩展名列表与 Python 版 FILTERS 相同）。搜索在后台线程执行、可被新输入取消，多核并行扫描条目；百万条目子串搜索目标 < 30 ms。增量收窄（新查询以旧查询为前缀时在旧结果内过滤）。
+5. **结果视图**：`LVS_OWNERDATA` 虚拟 ListView（报表模式、整行选择、多选、双缓冲），列：名称／路径／大小／修改时间，点击表头排序（升降序，名称排序用预排序数组，大结果集排序在后台线程）；图标用系统图像列表（`SHGetFileInfoW` + `SHGFI_SYSICONINDEX|SHGFI_USEFILEATTRIBUTES` 按扩展名缓存；exe/ico/lnk 按路径懒加载）；名称列用 NM_CUSTOMDRAW 加粗高亮匹配片段；状态栏：“N 个对象｜已选中 M 个”与“索引就绪：N 个文件和目录｜实时监控已全覆盖／正在建立索引…”。
+6. **操作**：Enter 打开（ShellExecuteW）、Ctrl+Enter 打开所在文件夹（SHOpenFolderAndSelectItems）、Ctrl+C 复制文件（CF_HDROP + Preferred DropEffect=COPY，资源管理器可粘贴）、Ctrl+Shift+C 复制完整路径、F2 重命名（输入框对话框，MoveFileW）、Delete 移到回收站（SHFileOperationW FO_DELETE|FOF_ALLOWUNDO；可移动/网络盘上拒绝并提示，因 Windows 会永久删除）、Alt+Enter 属性（ShellExecuteExW "properties"）、右键菜单（打开／打开所在文件夹／在命令行中打开／复制／复制完整路径／复制文件名／复制所在目录／重命名／移到回收站／属性；Shift+右键显示系统完整右键菜单〔IContextMenu〕）；拖拽结果到资源管理器或其他程序（SHCreateDataObject 或自实现 IDataObject + DoDragDrop，CF_HDROP）。导出 CSV（UTF-8 BOM）。
+7. **窗口与系统集成**：单实例（命名互斥体 + 已运行实例收到 WM_COPYDATA：show/toggle/hidden）；命令行 `--toggle`、`--hidden`；托盘图标（左键显示/隐藏、右键菜单：显示主窗口／退出），关闭窗口默认最小化到托盘（选项可改）；Esc 清空搜索/再按隐藏；全局快捷键 RegisterHotKey 默认 Ctrl+Alt+F（选项可改/关闭，注册失败状态栏提示）；开机自启 `HKCU\...\Run`；“创建桌面快捷方式”（IShellLinkW）；窗口位置、列宽、排序、开关状态持久化。帮助（F1）对话框列出语法与快捷键；关于对话框。界面字体用系统消息字体（NONCLIENTMETRICS.lfMessageFont，中文 Win7 即微软雅黑），DPI 缩放（Win10 每显示器 DPI：WM_DPICHANGED；Win7 系统 DPI）。
+8. **选项对话框**：索引范围（列表+添加/删除，SHBrowseForFolder）、排除目录、可移动盘、网络盘、关闭到托盘、开机自启、全局快捷键（HOTKEY_CLASS 控件）。修改索引范围后后台重建。
+9. **测试接口（必须实现，供差分测试）**：`QianXun-x64.exe --cli --root <目录> [--root …] --query "<查询>" [--case] [--whole] [--path] [--regex] [--filter <序号>] --out <文件>`：不建窗口，扫描给定根后执行一次查询，把匹配项完整路径按“名称不区分大小写升序、同名按路径”排序后逐行写入 `--out`（UTF-8，LF），最后一行写 `#count=<N> #ms=<查询毫秒>`，然后退出码 0；`--cli-watch` 模式：扫描后进入监控，`--duration <秒>` 内每 100 ms 把当前 `--query` 结果计数与时间戳追加写到 `--out`（用于测实时更新延迟）。
+
+## 质量要求
+- 不崩溃：所有 Win32 调用检查返回值；异常文件名（超长路径 >260 用 `\\?\` 前缀扫描、含罕见 Unicode）正常显示；大目录、深层目录、权限拒绝、扫描中目录被删都要稳。
+- 线程安全：索引写入（扫描/监控线程）与读取（搜索/界面）之间用 SRWLOCK（Vista+）或读写分代；界面只在主线程更新。
+- 资源：空闲 CPU≈0；监控风暴（大量文件快速变化）时界面不卡、刷新节流。

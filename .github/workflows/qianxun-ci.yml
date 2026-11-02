@@ -1,0 +1,44 @@
+# 千寻：每次 PR 与合并到 main 时自动检查（引擎＋搜索测试、Windows 原生版编译）
+name: qianxun-ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: 语法检查
+        run: python -m py_compile app/qianxun.py
+      - name: 引擎测试
+        run: |
+          cd tests/qa
+          timeout 600 python test_engine.py | tee ../../engine.log
+          grep -q "^FAILED: none" ../../engine.log
+      - name: 搜索语法测试
+        run: |
+          cd tests/qa
+          timeout 600 python test_search.py | tee ../../search.log
+          grep -q "TOTAL FAIL 0" ../../search.log
+
+  native:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 mingw-w64
+        run: sudo apt-get update -q && sudo apt-get install -y -q mingw-w64 g++-mingw-w64-x86-64-win32 g++-mingw-w64-i686-win32
+      - name: 编译原生版 x64／x86
+        run: bash native/build.sh
+      - name: 核查导入表（须兼容 Windows 7）
+        run: |
+          for a in x64 x86; do
+            out=$(bash tests/native_diff/check_imports.sh native/out/QianXun-$a.exe); echo "$out"
+            echo "$out" | grep -q "OUTSIDE-SPEC-LIST" && { echo "::error::$a 导入了规定以外的 DLL"; exit 1; }
+            echo "$out" | grep -A1 "suspicious" | grep -q "^  none$" || { echo "::error::$a 存在 Win8+ 才有的静态导入"; exit 1; }
+          done
