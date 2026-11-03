@@ -2620,12 +2620,7 @@ def win_set_app_id(app_id='QianXun.FileSearch'):
         pass
 
 
-# ----------------------------------------------------------------------------
-#  增量升级
-# ----------------------------------------------------------------------------
-# 单文件版释放目录。下次启动会整目录覆盖，写进去的补丁留不住。
 _EXTRACT_DIR = re.compile(r'^rt-[0-9a-fA-F]{12}$')
-# portable.txt 一出现，Windows 就把数据改存到程序目录。探测写入不许碰它。
 _PROBE_NAME = '.qx-write-probe'
 _JOURNAL_DIR = '.qx-upgrade'
 _MEMBER_MAX = 4 * 1024 * 1024
@@ -2905,8 +2900,6 @@ def _nested(path, parent):
 
 
 def _probe_writable(root):
-    if _PROBE_NAME == 'portable.txt':
-        return False
     probe = os.path.join(root, _PROBE_NAME)
     fd = None
     try:
@@ -2993,7 +2986,6 @@ def _commit(root, fr, to, files):
             with open(backup, 'rb+') as f:
                 if f.read() != original:
                     raise OSError('backup mismatch')
-                # journal 写成 progress 之后，断电只能靠这份备份。先落盘，避免回滚盖上半截文件。
                 f.flush()
                 os.fsync(f.fileno())
             _fsync_dir(os.path.dirname(backup))
@@ -3015,7 +3007,6 @@ def _commit(root, fr, to, files):
 
 
 def pack_incremental(from_version, tree, out_zip):
-    """把 tree 里的允许名单打成增量包。to 取 tree 里的 VERSION。from 高于 to 时拒绝。"""
     fr = _ver_tuple(from_version if isinstance(from_version, str) else '')
     if fr is None:
         raise UpgradeError('from_version 不是 x.y.z')
@@ -3065,7 +3056,6 @@ def pack_incremental(from_version, tree, out_zip):
 
 
 def install_root(script_file):
-    """script_file 所在目录必须叫 app，返回它的上一级。"""
     folder = os.path.dirname(os.path.abspath(script_file))
     if os.path.basename(folder) != 'app':
         raise UpgradeError('程序不在 app 目录里')
@@ -3073,7 +3063,6 @@ def install_root(script_file):
 
 
 def reconcile_upgrade(root):
-    """未完成的替换用备份盖回去。已完成且版本相符则删掉日志目录。没有日志时返回 None。"""
     journal = os.path.join(root, _JOURNAL_DIR, 'journal')
     if not os.path.isfile(journal):
         return None
@@ -3093,7 +3082,6 @@ def reconcile_upgrade(root):
 
 
 def apply_upgrade(zip_path, root, confirm, running_version):
-    """先收口上次中断。确认之前不写文件。确认之后重读 zip。不启动新进程。"""
     root = os.path.abspath(root)
     note = reconcile_upgrade(root)
     if note == _ROLLBACK_NOTE:
@@ -3119,7 +3107,6 @@ def apply_upgrade(zip_path, root, confirm, running_version):
     if not confirm(inspect):
         return _result('cancelled', disk_version=inspect.disk_version, from_version=inspect.from_version,
                        to_version=inspect.to_version, root=root, paths=paths)
-    # 对话框开着时，zip 可能已经被换掉。
     try:
         fr2, to2, files2 = _read_pack(zip_path)
     except _Rejected as exc:
@@ -3152,7 +3139,6 @@ def upgrade_confirm_text(inspect):
 
 
 def upgrade_notice(result):
-    """返回 (information|warning|status|'', 正文)。取消时正文为空。"""
     if result.outcome == 'cancelled':
         return '', ''
     if result.outcome == 'already':
@@ -3169,7 +3155,8 @@ def upgrade_notice(result):
         return 'warning', ('此目录不能增量升级：%s。系统安装（/opt/qianxun）和没有写权限的目录请安装完整包。'
                            '绿色版、用户目录里的千寻和 qianxun-portable 可以直接升级。') % result.root
     if result.reason == 'extract':
-        return 'warning', '当前运行在单文件版释放的目录里，增量升级会在下次解压时丢失。请改用解压后的文件夹版。'
+        return 'warning', ('当前运行在单文件版释放的目录里。更换便携 exe，或删掉 .complete 后，这里的修改会丢失。'
+                           '请改用解压后的文件夹版。')
     if result.reason == 'bad_path':
         return 'warning', '升级包里有不允许的路径，已拒绝，未改动任何文件。'
     if result.reason == 'version':

@@ -1,4 +1,3 @@
-"""Incremental zip apply. Temp trees only. Run: python3 tests/qa/test_upgrade.py"""
 import os
 import re
 import sys
