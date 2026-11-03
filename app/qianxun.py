@@ -2990,9 +2990,13 @@ def _commit(root, fr, to, files):
         else:
             os.makedirs(os.path.dirname(backup), exist_ok=True)
             shutil.copyfile(dest, backup)
-            with open(backup, 'rb') as f:
+            with open(backup, 'rb+') as f:
                 if f.read() != original:
                     raise OSError('backup mismatch')
+                # journal 写成 progress 之后，断电只能靠这份备份。先落盘，避免回滚盖上半截文件。
+                f.flush()
+                os.fsync(f.fileno())
+            _fsync_dir(os.path.dirname(backup))
         _write_journal(journal, 'progress', fr, to, rel, absent)
         journaled = True
         _atomic_write(dest, files[rel])
