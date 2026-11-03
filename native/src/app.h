@@ -11,7 +11,7 @@
 #include <vector>
 #include <cstdint>
 
-#define QX_VERSION_W L"1.1.0"
+#define QX_VERSION_W L"1.2.0"
 #define QX_APP_NAME L"千寻"
 
 namespace qx {

@@ -2,6 +2,12 @@
 
 版本号说明：1.0.0 期间多次修订均以 1.0.0 重新发包（下表按日期列出各次重发）。自 1.1.0 起，麒麟版、Windows Python 版与原生 Windows 版统一使用同一版本号。
 
+## [1.2.0] — 2026-11-03　增量升级
+
+- 帮助菜单增加「增量升级…」。1.2.0 及以上可在界面中选择增量 zip 并确认，程序退出后重新打开，只替换 `app/qianxun.py`。
+- 从 1.1.0 升到 1.2.0，以及更换 Python、Qt、启动器或原生 exe，仍须安装完整包。`/opt/qianxun`、deb 安装和单文件版释放目录不能用这个菜单写入。增量包没有签名。
+- 维护者打包命令是 `python3 app/qianxun.py --pack-incremental 1.2.0 . _work/dist/qianxun-1.2.0-incremental.zip`。1.2.0 这份包与已安装版本相同，不改文件。`build/build_all.sh` 会在校验和之前打出这份空包。
+
 ## [1.1.0] — 2026-10-19　Windows 原生版
 
 - 新增 C++17＋纯 Win32 原生版（`native/`），mingw-w64 静态编译，单个 exe 零运行库依赖，支持 Windows 7 SP1～11，x64 与 x86 各一。

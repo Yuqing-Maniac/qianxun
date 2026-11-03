@@ -4,7 +4,7 @@
 
 ## 构建约束
 - 编译：`x86_64-w64-mingw32-g++` 与 `i686-w64-mingw32-g++`（posix 或 win32 线程模型均可，优先 win32 线程 + `std::thread` 可用的变体；若 std::thread 不可用，用 `CreateThread`），`-O2 -s -static -static-libgcc -static-libstdc++ -municode -mwindows -DUNICODE -D_UNICODE -D_WIN32_WINNT=0x0601 -DWINVER=0x0601`。产物只依赖系统 DLL（kernel32、user32、gdi32、shell32、ole32、comctl32、shlwapi、advapi32、uxtheme、msvcrt），用 `x86_64-w64-mingw32-objdump -p` 核查导入表，**不得出现 Win8+ 才有的导入**（如 GetTickCount64 可用〔Vista+〕，但 `SetThreadDescription`、`GetDpiForWindow`、`SetProcessDpiAwarenessContext`、`PathCch*`、`api-ms-win-*` 等须用 GetProcAddress 动态取）。
-- 资源：图标 `/home/claude/build/win/launcher/` 下已有的 .ico（或由 `/home/claude/build/app/qianxun.svg` 生成），VERSIONINFO（FileDescription=千寻 文件秒搜，ProductName=千寻，FileVersion=1.1.0.0），manifest：asInvoker、Common Controls v6、supportedOS Win7/8/8.1/10、dpiAware=true + dpiAwareness=PerMonitorV2。
+- 资源：图标 `/home/claude/build/win/launcher/` 下已有的 .ico（或由 `/home/claude/build/app/qianxun.svg` 生成），VERSIONINFO（FileDescription=千寻 文件秒搜，ProductName=千寻，FileVersion=1.2.0.0），manifest：asInvoker、Common Controls v6、supportedOS Win7/8/8.1/10、dpiAware=true + dpiAwareness=PerMonitorV2。
 - 源码目录 `/home/claude/build/native/src/`，构建脚本 `/home/claude/build/native/build.sh` → `/home/claude/build/native/out/QianXun-x64.exe`、`QianXun-x86.exe`。
 
 ## 功能（对标 Python 版）
