@@ -941,6 +941,9 @@ class Engine(threading.Thread):
         """缓存加载成功后的钩子（Windows：按当前盘符增删根）。"""
         pass
 
+    def _use_cached_stats(self):
+        self.skip_sweep = True
+
     def _run(self):
         self._setup_paths()
         self.mounts = set(read_mounts())
@@ -959,9 +962,7 @@ class Engine(threading.Thread):
             self.status.update(state='updating', msg='正在同步自上次以来的变化…')
             self._init_watches()
             self._catch_up(False)
-            if not IS_WIN:
-                # 缓存里已经有大小和时间。紧接着再 lstat 整棵树，等于把刚读进来的元数据重做一遍。
-                self.skip_sweep = True
+            self._use_cached_stats()
         else:
             self._full_scan()
         self._start_sweep(None)
@@ -1673,6 +1674,9 @@ class EngineWin(Engine):
 
     def _after_load(self):
         self._sync_roots()
+
+    def _use_cached_stats(self):
+        pass
 
     def _full_scan(self):
         Engine._full_scan(self)

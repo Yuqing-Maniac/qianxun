@@ -467,7 +467,6 @@ def delete_large_tree(root, outside):
 
 @scenario
 def reload_keeps_cached_size(root, outside):
-    """第二次启动读到缓存后，不再把整棵树 lstat 一遍。关着的时候改过的大小先留着缓存值。"""
     p = mk(root, 'f.bin', b'x' * 10)
     idx, eng = start(root)
     expect(idx, eng, root, 'initial')
