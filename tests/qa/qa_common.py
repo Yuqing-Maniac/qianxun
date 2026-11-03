@@ -39,6 +39,8 @@ def index_set(idx):
 
 def check_consistent(idx):
     """Internal invariants of Index."""
+    idx.ensure_children()
+    idx.ensure_lnames()
     with idx.lock:
         n = len(idx.names)
         assert n == len(idx.lnames) == len(idx.parent) == len(idx.kind) == len(idx.size) == len(idx.mtime)

@@ -414,6 +414,8 @@ class Index(object):
 
     # ---- 基本操作（调用方持锁） ----
     def _new_dir(self, path, entry):
+        if self.dir_children is None:
+            self.ensure_children()
         did = len(self.dirs)
         self.dirs.append(path)
         self.dir_ids[dkey(path)] = did
@@ -426,6 +428,8 @@ class Index(object):
         return did
 
     def _add_entry(self, did, name, isdir, size=-1, mtime=-1.0):
+        if self.lnames is None:
+            self.ensure_lnames()
         i = len(self.names)
         self.names.append(name)
         ln = name.lower()
@@ -440,6 +444,8 @@ class Index(object):
         return i
 
     def _remove_entry(self, i, removed_dirs):
+        if self.lnames is None:
+            self.ensure_lnames()
         stack = [i]
         while stack:
             e = stack.pop()
@@ -598,6 +604,7 @@ class Index(object):
 
     def remove_root(self, did):
         """整棵删除一个根（盘符拔出、根被删除）；返回被删除的 dir id 列表（含根自身）。"""
+        self.ensure_children()
         removed = []
         with self.lock:
             p = self.dirs[did]
@@ -617,6 +624,7 @@ class Index(object):
     def refresh_dir(self, did, excluded, force=()):
         """重新列一个目录，与索引比对增删；返回 (新增目录, 删除目录)。
         force：须整体重建的子项名（被移入/移出或换了挂载的目录，同名不代表内容相同）。"""
+        self.ensure_children()
         path = self.dirs[did]
         if path is None:
             return [], []
@@ -758,19 +766,15 @@ class Index(object):
         if not (len(dirs) == nd == len(dentry) == len(dmtime) and
                 len(names) == n == len(parent) == len(kind) == len(size) == len(mtime)):
             return False
-        lnames = [ln if ln != s else s for s, ln in zip(names, map(str.lower, names))]
-        children = [[] for _ in range(nd)]
-        for i, p in enumerate(parent):
-            children[p].append(i)
         with self.lock:
             self.gen += 1
             self.dirs = dirs
             self.dir_ids = {dkey(p): d for d, p in enumerate(dirs)}
             self.dir_entry = dentry
             self.dir_mtime = dmtime
-            self.dir_children = children
+            self.dir_children = None
             self.names = names
-            self.lnames = lnames
+            self.lnames = None
             self.parent = parent
             self.kind = kind
             self.size = size
@@ -783,6 +787,28 @@ class Index(object):
             self.struct_version += 1
             self.dirs_version += 1
         return True
+
+    def ensure_children(self):
+        if self.dir_children is not None:
+            return
+        with self.lock:
+            if self.dir_children is not None:
+                return
+            nd = len(self.dirs)
+            parent = self.parent
+            children = [[] for _ in range(nd)]
+            for i, p in enumerate(parent):
+                children[p].append(i)
+            self.dir_children = children
+
+    def ensure_lnames(self):
+        if self.lnames is not None:
+            return
+        with self.lock:
+            if self.lnames is not None:
+                return
+            names = self.names
+            self.lnames = [ln if ln != s else s for s, ln in zip(names, map(str.lower, names))]
 
 
 # ----------------------------------------------------------------------------
@@ -1011,6 +1037,7 @@ class Engine(threading.Thread):
             else:
                 # 索引根本身换了挂载：清掉子项后重扫，并重新挂监控
                 self._unwatch([d])
+                idx.ensure_children()
                 with idx.lock:
                     removed = []
                     for c in idx.dir_children[d]:
@@ -1175,6 +1202,7 @@ class Engine(threading.Thread):
 
     def _apply_touched(self, touched):
         idx = self.index
+        idx.ensure_children()
         for d, names in touched.items():
             p = idx.dirs[d] if d < len(idx.dirs) else None
             if p is None:
@@ -1252,6 +1280,7 @@ class Engine(threading.Thread):
     # ---- 名称排序缓存（分块排序 + 归并，避免长时间占用 GIL 卡界面） ----
     def _compute_order(self):
         idx = self.index
+        idx.ensure_lnames()
         n = len(idx.names)
         ln, kind = idx.lnames, idx.kind
         live = [i for i in range(n) if kind[i] != KIND_DEAD]
@@ -2248,6 +2277,7 @@ class Searcher(object):
 
     def run(self, q, extra_key=None):
         """返回未排序的条目号列表；调用方持 index.lock。"""
+        self.index.ensure_lnames()
         idx = self.index
         if q.error:
             return []
@@ -3450,6 +3480,8 @@ if HAVE_QT:
         def _sorted(self, res):
             idx = self.index
             col, desc = self.sort_col, self.sort_desc
+            if col in (0, 1):
+                idx.ensure_lnames()
             self.rows_unsorted = False
             if col == 0:
                 ln = idx.lnames
