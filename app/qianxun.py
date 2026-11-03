@@ -3867,6 +3867,7 @@ if HAVE_QT:
             self._act(m, '打开日志目录', lambda: open_path(CACHE_DIR))
             m = mb.addMenu('帮助(&H)')
             self._act(m, '搜索语法与快捷键', self.show_help, 'F1')
+            self._act(m, '增量升级…', self.incremental_upgrade)
             self._act(m, '关于千寻', self.show_about)
 
             # 结果区快捷键
@@ -4427,6 +4428,38 @@ if HAVE_QT:
             else:
                 QMessageBox.warning(self, APP_NAME, '未能提升（已取消或权限不足）。')
 
+        def incremental_upgrade(self):
+            path, _chosen = QFileDialog.getOpenFileName(self, '选择升级包', HOME, 'Zip 压缩包 (*.zip)')
+            if not path:
+                return
+            result = apply_upgrade(path, install_root(__file__), self._confirm_upgrade, VERSION)
+            kind, text = upgrade_notice(result)
+            if result.needs_restart:
+                if text:
+                    self.statusBar().showMessage(text, 5000)
+                    QApplication.processEvents()
+                restart_after_upgrade(self, getattr(self, 'server', None))
+                return
+            if kind == 'information' and text:
+                QMessageBox.information(self, '增量升级', text)
+            elif kind == 'warning' and text:
+                QMessageBox.warning(self, '增量升级', text)
+
+        def _confirm_upgrade(self, inspect):
+            dlg = QDialog(self)
+            dlg.setWindowTitle('增量升级')
+            lay = QVBoxLayout(dlg)
+            lab = QLabel(upgrade_confirm_text(inspect))
+            lab.setWordWrap(True)
+            lay.addWidget(lab)
+            bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            bb.button(QDialogButtonBox.Ok).setText('确定')
+            bb.button(QDialogButtonBox.Cancel).setText('取消')
+            bb.accepted.connect(dlg.accept)
+            bb.rejected.connect(dlg.reject)
+            lay.addWidget(bb)
+            return qexec(dlg) == QDialog.Accepted
+
         def show_help(self):
             dlg = QDialog(self)
             dlg.setWindowTitle('搜索语法与快捷键')
@@ -4634,9 +4667,68 @@ if HAVE_QT:
 
 SERVER_NAME = server_name()
 
+_SPAWN_FAIL = ('文件已更新，但没能启动新进程。请用“文件 → 退出”结束千寻，再重新打开。'
+               '只关窗口会留在托盘，仍是旧版本。')
+
+
+def restart_after_upgrade(win, server):
+    win.quitting = True
+    win.save_state()
+    win.hide()
+    if win.tray is not None:
+        win.tray.hide()
+    win.engine.post('quit')
+    win.engine.join(15)
+    if server is not None:
+        server.close()
+    QLocalServer.removeServer(SERVER_NAME)
+    try:
+        env = os.environ.copy()
+        if IS_WIN:
+            launcher = env.get('QIANXUN_LAUNCHER')
+            if launcher:
+                argv = [launcher]
+            else:
+                argv = [launcher_command(env)[0], os.path.abspath(__file__)]
+            flags = 0
+            if hasattr(subprocess, 'DETACHED_PROCESS'):
+                flags |= subprocess.DETACHED_PROCESS
+            if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
+                flags |= subprocess.CREATE_NEW_PROCESS_GROUP
+            subprocess.Popen(argv, creationflags=flags, close_fds=True, env=env)
+        else:
+            subprocess.Popen([sys.executable, os.path.abspath(__file__)],
+                             start_new_session=True, env=env, close_fds=True)
+    except Exception:
+        log('upgrade spawn:\n' + traceback.format_exc())
+        if server is not None:
+            try:
+                server.listen(SERVER_NAME)
+            except Exception:
+                log('upgrade listen:\n' + traceback.format_exc())
+        win.quitting = False
+        if win.tray is not None:
+            win.tray.show()
+        win.show_raise()
+        QMessageBox.warning(win, '增量升级', _SPAWN_FAIL)
+        return
+    app = QApplication.instance()
+    if app is not None:
+        app.quit()
+
 
 def main():
     args = sys.argv[1:]
+    if args[:1] == ['--pack-incremental']:
+        if len(args) != 4:
+            return 1
+        try:
+            pack_incremental(args[1], args[2], args[3])
+        except Exception as exc:
+            if sys.stderr is not None:
+                sys.stderr.write('%s\n' % exc)
+            return 1
+        return 0
     if '--version' in args:
         if sys.stdout is not None:      # pythonw.exe 下没有 stdout
             print('%s %s' % (APP_ID, VERSION))
@@ -4693,6 +4785,7 @@ def main():
     QLocalServer.removeServer(SERVER_NAME)
     server = QLocalServer()
     server.listen(SERVER_NAME)
+    upgrade_note = reconcile_upgrade(install_root(__file__))
 
     icon = make_app_icon()
     app.setWindowIcon(icon)
@@ -4709,6 +4802,7 @@ def main():
     engine = make_engine(index, cfg)
     engine.start()
     win = MainWindow(cfg, index, engine, icon)
+    win.server = server
     if IS_WIN:
         try:
             engine.hwnd = int(win.winId())
@@ -4769,6 +4863,8 @@ def main():
 
     if msg != 'hidden' or win.tray is None:
         win.show_raise()
+    if upgrade_note:
+        QMessageBox.information(win, '增量升级', upgrade_note)
     return qexec(app)
 
 

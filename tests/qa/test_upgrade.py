@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import shutil
+import subprocess
 import tempfile
 import zipfile
 
@@ -290,6 +291,20 @@ try:
     check(got.outcome == 'refused' and got.reason == 'bad_zip', 'reread of a broken zip refuses')
     check(snap(trash_py) == trash_before, 'broken reread writes nothing')
     check(q.upgrade_notice(got)[1] == '无法读取升级包。请选择千寻增量包，而不是完整安装包。', 'bad zip notice')
+
+    repo = os.path.abspath(os.path.join(HERE, '..', '..'))
+    script = os.path.join(repo, 'app', 'qianxun.py')
+    cli_out = os.path.join(base, 'cli.zip')
+    proc = subprocess.run([sys.executable, script, '--pack-incremental', '1.1.0', repo, cli_out],
+                          capture_output=True, text=True)
+    check(proc.returncode == 0 and proc.stdout.strip() == os.path.abspath(cli_out), 'pack cli prints dest')
+    check(os.path.isfile(cli_out), 'pack cli writes the zip')
+    refused = subprocess.run([sys.executable, script, '--pack-incremental', '9.9.9', repo, cli_out],
+                             capture_output=True, text=True)
+    check(refused.returncode == 1 and refused.stdout == '', 'pack cli refuses a newer from_version')
+    arity = subprocess.run([sys.executable, script, '--pack-incremental', '1.1.0', repo],
+                           capture_output=True, text=True)
+    check(arity.returncode == 1 and arity.stdout == '', 'pack cli requires three arguments')
 
     down = os.path.join(base, 'down.zip')
     down_tree = os.path.join(base, 'down-tree')

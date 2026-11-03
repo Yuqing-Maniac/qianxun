@@ -22,6 +22,15 @@ q.QMessageBox.warning = staticmethod(lambda *a, **k: LOG.append(('warning', a[2]
 q.QMessageBox.information = staticmethod(lambda *a, **k: LOG.append(('info', a[2] if len(a) > 2 else '')))
 q.QInputDialog.getText = staticmethod(lambda *a, **k: ANSWERS['text'])
 q.QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: ANSWERS['save'])
+OPEN_ARGS = []
+
+
+def _no_open(*a, **k):
+    OPEN_ARGS.append(a)
+    return ('', '')
+
+
+q.QFileDialog.getOpenFileName = staticmethod(_no_open)
 OPENED = []
 q.open_path = lambda p: OPENED.append(p)
 q.show_in_folder = lambda p: OPENED.append(('folder', p))
@@ -272,6 +281,20 @@ try:
     check(win.search.text() == '', 'Esc clears text')
     win.search.keyPressEvent(ev)   # tray absent under offscreen -> must stay visible
     check(win.isVisible() or win.tray is not None, 'Esc w/o tray keeps window')
+
+    labels = []
+    for top in win.menuBar().actions():
+        menu = top.menu()
+        if menu is not None and '帮助' in top.text():
+            labels = [act.text() for act in menu.actions()]
+    check('增量升级…' in labels, 'help menu lists upgrade')
+    check(labels.index('增量升级…') == labels.index('搜索语法与快捷键') + 1, 'upgrade follows F1')
+    check(labels.index('关于千寻') == labels.index('增量升级…') + 1, 'about follows upgrade')
+    before_log = len(LOG)
+    win.incremental_upgrade()
+    check(len(LOG) == before_log, 'empty upgrade path shows no message')
+    got_args = OPEN_ARGS[-1][1:] if OPEN_ARGS else None
+    check(got_args == ('选择升级包', q.HOME, 'Zip 压缩包 (*.zip)'), 'upgrade dialog args %r' % (got_args,))
 
     # ---- close with no tray ----
     print('tray available:', win.tray is not None)
