@@ -944,6 +944,15 @@ class Engine(threading.Thread):
     def _use_cached_stats(self):
         self.skip_sweep = True
 
+    def _cached_startup(self):
+        # 名字已经在缓存里。先让界面可搜，再挂监控、比对目录时间和排序。
+        self._use_cached_stats()
+        self._set_ready()
+        time.sleep(0)
+        self._init_watches()
+        self._catch_up(False)
+        self._compute_order()
+
     def _run(self):
         self._setup_paths()
         self.mounts = set(read_mounts())
@@ -958,11 +967,7 @@ class Engine(threading.Thread):
         if loaded:
             self._after_load()
             self.saved_version = self.index.version
-            self._compute_order()
-            self.status.update(state='updating', msg='正在同步自上次以来的变化…')
-            self._init_watches()
-            self._catch_up(False)
-            self._use_cached_stats()
+            self._cached_startup()
         else:
             self._full_scan()
         self._start_sweep(None)
@@ -1677,6 +1682,12 @@ class EngineWin(Engine):
 
     def _use_cached_stats(self):
         pass
+
+    def _cached_startup(self):
+        self._compute_order()
+        self.status.update(state='updating', msg='正在同步自上次以来的变化…')
+        self._init_watches()
+        self._catch_up(False)
 
     def _full_scan(self):
         Engine._full_scan(self)
