@@ -9,6 +9,7 @@ run() { n=$1; shift; echo "== $n"; ( "$@" ) > "$O/$n.log" 2>&1; echo "rc=$?" >> 
 run engine timeout 600 python3 test_engine.py
 run search timeout 600 python3 test_search.py
 run pathref timeout 300 python3 test_pathref.py
+run upgrade timeout 120 python3 test_upgrade.py
 for B in PyQt5 PySide6; do
   run race_$B env QT_QPA_PLATFORM=offscreen QIANXUN_QT=$B timeout 300 python3 test_race.py
   run gui_$B env QT_QPA_PLATFORM=offscreen QIANXUN_QT=$B timeout 300 python3 test_gui.py
