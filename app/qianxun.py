@@ -903,6 +903,7 @@ class Engine(threading.Thread):
         self.order_version = -1
         self.sweep_iter = None
         self.sweep_scope = None
+        self.skip_sweep = False
         self.moved = {}        # dir id -> 被移入/移出的子目录名（须强制重建）
         self.mounts = None
 
@@ -958,6 +959,9 @@ class Engine(threading.Thread):
             self.status.update(state='updating', msg='正在同步自上次以来的变化…')
             self._init_watches()
             self._catch_up(False)
+            if not IS_WIN:
+                # 缓存里已经有大小和时间。紧接着再 lstat 整棵树，等于把刚读进来的元数据重做一遍。
+                self.skip_sweep = True
         else:
             self._full_scan()
         self._start_sweep(None)
@@ -1194,6 +1198,10 @@ class Engine(threading.Thread):
 
     # ---- 大小/时间补全 ----
     def _start_sweep(self, scope):
+        if scope is None and self.skip_sweep:
+            self.skip_sweep = False
+            self.sweep_iter = None
+            return
         self.sweep_scope = scope   # None=全部；'unwatched'=仅未监控目录下的
         self.sweep_iter = iter(range(len(self.index.names)))
 

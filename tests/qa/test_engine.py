@@ -466,6 +466,34 @@ def delete_large_tree(root, outside):
 
 
 @scenario
+def reload_keeps_cached_size(root, outside):
+    """第二次启动读到缓存后，不再把整棵树 lstat 一遍。关着的时候改过的大小先留着缓存值。"""
+    p = mk(root, 'f.bin', b'x' * 10)
+    idx, eng = start(root)
+    expect(idx, eng, root, 'initial')
+    t = time.time()
+    while time.time() - t < 5:
+        with idx.lock:
+            i = [k for k in range(len(idx.names)) if idx.names[k] == 'f.bin' and idx.kind[k] != q.KIND_DEAD][0]
+            if idx.size[i] == 10 and eng.sweep_iter is None:
+                break
+        time.sleep(0.05)
+    assert idx.size[i] == 10, idx.size[i]
+    stop(eng)
+    with open(p, 'ab') as f:
+        f.write(b'y' * 100)
+    mk(root, 'late.txt', b'z')
+    idx2, eng2 = start(root)
+    expect(idx2, eng2, root, 'reloaded')
+    time.sleep(0.6)
+    with idx2.lock:
+        i = [k for k in range(len(idx2.names)) if idx2.names[k] == 'f.bin' and idx2.kind[k] != q.KIND_DEAD][0]
+        assert idx2.size[i] == 10, idx2.size[i]
+        assert eng2.sweep_iter is None
+    stop(eng2)
+
+
+@scenario
 def size_mtime_updates(root, outside):
     p = mk(root, 'f.bin', b'x' * 10)
     idx, eng = start(root)
