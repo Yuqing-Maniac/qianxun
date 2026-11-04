@@ -2,7 +2,7 @@
 # Build the native Win32 version (native/build.sh) and package it into $WORK/dist.
 # Written 2026-10-22 for the repository (the original release zip was assembled by hand with the same layout).
 set -euo pipefail
-ROOT=$(cd "$(dirname "$0")/../.." && pwd); WORK=${QX_WORK:-$ROOT/_work}; D=$WORK/dist; VER=1.2.0
+ROOT=$(cd "$(dirname "$0")/../.." && pwd); WORK=${QX_WORK:-$ROOT/_work}; D=$WORK/dist; VER=1.2.1
 bash "$ROOT/native/build.sh" all
 mkdir -p "$D"
 cp "$ROOT/native/out/QianXun-x64.exe" "$ROOT/native/out/QianXun-x86.exe" "$D/"
