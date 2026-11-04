@@ -97,6 +97,14 @@ bash build/windows/package_native.sh     # 原生 exe x64/x86 + zip（native/bui
 bash build/build_all.sh                  # 以上全部，并生成 _work/dist/SHA256SUMS.txt
 ```
 2026-10-22 已在空的 QX_WORK 中实测 `build/build_all.sh`：约 4 分钟，从零产出全部 11 个发布物；运行库与原件逐文件一致（见 docs/BUILD_RUNTIMES.md），原生 exe 与已交付版本仅 PE 时间戳不同。
+
+**增量升级**
+- 完整包是 deb、绿色版 tar.gz 和 zip、Windows 文件夹 zip、portable exe、原生版 zip。从 1.1.0 升到 1.2.0，以及更换 Python、Qt、启动器或原生 exe，都只能安装完整包。
+- 增量包是 `qianxun-<版本>-incremental.zip`。1.2.0 及以上打开 **帮助 → 增量升级…**，选中 zip 并确认。不需要命令行。
+- `build/build_all.sh` 在 `sha256sum` 之前，用 `VERSION` 行作为 from_version，把同版本空包打到 `_work/dist/`。单独打包：`python3 app/qianxun.py --pack-incremental 1.2.0 . _work/dist/qianxun-1.2.0-incremental.zip`。
+- 1.2.0 这包与已安装版本相同，不改文件。之后的包把 from_version 设为 1.2.0，或设为一台机器上已安装的更高版本。to_version 取树里的 `VERSION` 行。
+- 新文件要等进程退出并重新启动才运行。只关窗口会留在托盘，程序仍是旧的。`/opt/qianxun` 和 deb 安装此菜单不可写。单文件版的释放目录会被拒绝。原生 exe 没有该菜单。zip 不替换 `python3.13` 或 Qt 库。目录外的菜单图标不会更新。包没有签名。写入中崩溃时，下次启动恢复原来的 `qianxun.py`。写进 `qianxun-portable` 的补丁，可能在下次 U 盘启动且脚本内容不同时被盖掉。
+
 唯二不能从零重建的是 `build/linux/prebuilt/aarch64/` 下两个手工交叉编译的二进制（需要 GitHub 上的 qtbase v6.8.0 与 fcitx5-qt 源码，构建脚本在 build/linux/fcitx_aarch64/，说明见 docs/FCITX_AARCH64.md）。
 
 **测试**
@@ -116,7 +124,7 @@ bash tests/native_diff/run_diff.sh       # 原生版 578 条差分；live_test.p
 - 新增平台差异时，Linux 行为必须不变：先跑一遍 `tests/run_regression.sh` 作为基线，改完再跑一遍对比。
 
 ## 7. 版本号
-发版前以下各处必须一致（当前 1.1.0），并在 `CHANGELOG.md` 新增条目：
+发版前以下各处必须一致（当前 1.2.0），并在 `CHANGELOG.md` 新增条目：
 - `app/qianxun.py` 的 `VERSION`：程序“关于”与 `--version` 显示；**`build/linux/build_release.sh`（变量 `V`）与 `build/windows/build_win.sh`（变量 `VER`）用 sed 从这一行读取**，决定 deb 的 `Version:` 与 deb／tar.gz／zip／portable exe 的文件名，取不到即报错退出。
 - `native/src/app.h` 的 `QX_VERSION_W`：原生版“关于”与 `--version`。
 - `native/res/qianxun.rc`（FILEVERSION／PRODUCTVERSION 及两处字符串）与 `native/res/manifest.xml`：原生 exe 的文件属性。

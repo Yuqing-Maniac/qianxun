@@ -16,7 +16,7 @@ C++17 + 纯 Win32 API，mingw-w64 交叉编译，单文件 exe，零运行库依
 两个 exe 只导入：KERNEL32、USER32、GDI32、SHELL32、ole32、COMCTL32、ADVAPI32、UxTheme、msvcrt。
 逐函数核对：最新的是 Vista/Win7 级 API（SRWLOCK、CONDITION_VARIABLE、CancelIoEx、FindFirstFileExW、SHCreateDataObject、K32GetProcessMemoryInfo〔Win7 起在 kernel32〕），**无 Win8+ 导入**，无 api-ms-win-*。Win10 才有的 `GetDpiForWindow`、`SystemParametersInfoForDpi`、`SetCurrentProcessExplicitAppUserModelID`、`AttachConsole` 等一律 `GetProcAddress` 动态获取。msvcrt 只用 XP 起就有的经典函数。
 
-资源：多尺寸图标（复用 `win/launcher/qianxun.ico`）、VERSIONINFO（FileDescription=千寻 文件秒搜，ProductName=千寻，FileVersion=1.1.0.0）、清单（asInvoker、Common Controls v6、supportedOS Win7/8/8.1/10、`dpiAware=true/pm` + `dpiAwareness=PerMonitorV2,PerMonitor`、longPathAware）。
+资源：多尺寸图标（复用 `win/launcher/qianxun.ico`）、VERSIONINFO（FileDescription=千寻 文件秒搜，ProductName=千寻，FileVersion=1.2.0.0）、清单（asInvoker、Common Controls v6、supportedOS Win7/8/8.1/10、`dpiAware=true/pm` + `dpiAwareness=PerMonitorV2,PerMonitor`、longPathAware）。
 
 ## 架构
 

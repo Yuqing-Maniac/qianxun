@@ -1,7 +1,7 @@
 #!/bin/sh
 # install/uninstall in a HOME with spaces+Chinese, from a source dir with spaces+Chinese; verify nothing left.
 set -u
-TB=${QX_WORK:-$(cd "$(dirname "$0")/../.." && pwd)/_work}/dist/qianxun-1.1.0-kylin-x86_64.tar.gz
+TB=${QX_WORK:-$(cd "$(dirname "$0")/../.." && pwd)/_work}/dist/qianxun-1.2.0-kylin-x86_64.tar.gz
 W=$(mktemp -d)
 H="$W/home 用户"; S="$W/下载 目录"
 mkdir -p "$H/桌面" "$S"

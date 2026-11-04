@@ -24,7 +24,9 @@ import fnmatch
 import threading
 import queue
 import shutil
+import stat
 import subprocess
+import zipfile
 import heapq
 import csv
 import datetime
@@ -34,7 +36,7 @@ from collections import deque
 
 APP_NAME = '千寻'
 APP_ID = 'qianxun'
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 
 # 平台：同一份源码同时支持 Linux（银河麒麟等）与 Windows 10/11
 IS_WIN = os.name == 'nt'
@@ -2618,6 +2620,551 @@ def win_set_app_id(app_id='QianXun.FileSearch'):
         pass
 
 
+_EXTRACT_DIR = re.compile(r'^rt-[0-9a-fA-F]{12}$')
+_PROBE_NAME = '.qx-write-probe'
+_JOURNAL_DIR = '.qx-upgrade'
+_MEMBER_MAX = 4 * 1024 * 1024
+_TOTAL_MAX = 8 * 1024 * 1024
+_VER_RE = re.compile(br"^VERSION = '(\d+)\.(\d+)\.(\d+)'", re.M)
+_ROLLBACK_NOTE = '上次增量升级中断，已恢复升级前的文件。'
+_ROLLBACK_FAIL_NOTE = '升级没有完成，恢复也不完整。请用完整包重新覆盖这个目录。配置和索引没有改动。'
+
+UPGRADE_ALLOW = ('app/qianxun.py',)
+UPGRADE_META = 'qianxun-incremental'
+
+
+class UpgradeError(Exception):
+    pass
+
+
+class ApplyResult(object):
+    __slots__ = ('outcome', 'needs_restart', 'disk_version', 'from_version', 'to_version',
+                 'root', 'paths', 'reason')
+
+    def __init__(self, outcome, needs_restart=False, disk_version='', from_version='', to_version='',
+                 root='', paths=(), reason=''):
+        self.outcome = outcome
+        self.needs_restart = needs_restart
+        self.disk_version = disk_version
+        self.from_version = from_version
+        self.to_version = to_version
+        self.root = root
+        self.paths = tuple(paths)
+        self.reason = reason
+
+
+class UpgradeInspect(object):
+    __slots__ = ('from_version', 'to_version', 'disk_version', 'root', 'paths')
+
+    def __init__(self, from_version, to_version, disk_version, root, paths):
+        self.from_version = from_version
+        self.to_version = to_version
+        self.disk_version = disk_version
+        self.root = root
+        self.paths = tuple(paths)
+
+
+class _Rejected(Exception):
+    def __init__(self, reason):
+        Exception.__init__(self, reason)
+        self.reason = reason
+
+
+def _fmt_ver(ver):
+    return '%d.%d.%d' % ver
+
+
+def _ver_tuple(text):
+    m = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)', text)
+    if not m:
+        return None
+    return tuple(int(part) for part in m.groups())
+
+
+def _version_in_bytes(data):
+    m = _VER_RE.search(data)
+    if not m:
+        return None
+    return tuple(int(part) for part in m.groups())
+
+
+def _version_on_disk(path):
+    try:
+        with open(path, 'rb') as f:
+            data = f.read(_MEMBER_MAX + 1)
+    except OSError:
+        return None
+    if len(data) > _MEMBER_MAX:
+        return None
+    return _version_in_bytes(data)
+
+
+def _under(root, rel):
+    return os.path.join(root, *rel.split('/'))
+
+
+def _running_tuple(running_version):
+    if isinstance(running_version, tuple) and len(running_version) == 3:
+        return tuple(running_version)
+    return _ver_tuple(str(running_version))
+
+
+def _member_bad(name):
+    if not isinstance(name, str) or '\x00' in name or '\\' in name:
+        return True
+    try:
+        name.encode('ascii')
+    except UnicodeEncodeError:
+        return True
+    if name.startswith('/') or (len(name) > 1 and name[1] == ':'):
+        return True
+    return any(part in ('', '.', '..') for part in name.split('/'))
+
+
+def _is_zip_symlink(info):
+    return stat.S_ISLNK(info.external_attr >> 16)
+
+
+def _read_pack(zip_path):
+    try:
+        zf = zipfile.ZipFile(zip_path)
+    except (OSError, zipfile.BadZipFile):
+        raise _Rejected('bad_zip')
+    try:
+        infos = zf.infolist()
+        names = [info.filename for info in infos]
+        for info in infos:
+            if _member_bad(info.filename) or _is_zip_symlink(info):
+                raise _Rejected('bad_path')
+            if info.file_size > _MEMBER_MAX:
+                raise _Rejected('bad_zip')
+        if sum(info.file_size for info in infos) > _TOTAL_MAX:
+            raise _Rejected('bad_zip')
+        allowed = {UPGRADE_META}
+        allowed.update(UPGRADE_ALLOW)
+        if len(names) != len(set(names)):
+            raise _Rejected('bad_zip')
+        if set(names) - allowed:
+            raise _Rejected('bad_path')
+        if allowed - set(names):
+            raise _Rejected('bad_zip')
+        try:
+            meta = zf.read(UPGRADE_META)
+            files = {}
+            for rel in UPGRADE_ALLOW:
+                files[rel] = zf.read(rel)
+        except (OSError, zipfile.BadZipFile, RuntimeError, ValueError):
+            raise _Rejected('bad_zip')
+    finally:
+        zf.close()
+    if sum(len(blob) for blob in files.values()) + len(meta) > _TOTAL_MAX:
+        raise _Rejected('bad_zip')
+    try:
+        text = meta.decode('ascii')
+    except UnicodeDecodeError:
+        raise _Rejected('bad_zip')
+    lines = text.split('\n')
+    if len(lines) != 3 or lines[2] != '' or any('\r' in line for line in lines):
+        raise _Rejected('bad_zip')
+    fr, to = _ver_tuple(lines[0]), _ver_tuple(lines[1])
+    if fr is None or to is None:
+        raise _Rejected('bad_zip')
+    for rel in UPGRADE_ALLOW:
+        if _version_in_bytes(files[rel]) != to:
+            raise _Rejected('bad_zip')
+    return fr, to, files
+
+
+def _fsync_dir(path):
+    # 只 fsync 文件不够。崩溃可能留下新文件，却丢掉刚改名的 journal，下次启动无法回滚。
+    if IS_WIN:
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _atomic_write(dest, data):
+    parent = os.path.dirname(dest)
+    os.makedirs(parent, exist_ok=True)
+    tmp = os.path.join(parent, '.qx-upgrade-tmp')
+    try:
+        with open(tmp, 'wb') as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, dest)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
+def _write_journal(path, state, fr, to, rel, absent):
+    blob = ('state=%s\nfrom=%s\nto=%s\npath=%s\nabsent=%s\n' % (
+        state, _fmt_ver(fr), _fmt_ver(to), rel, '1' if absent else '0')).encode('ascii')
+    parent = os.path.dirname(path)
+    os.makedirs(parent, exist_ok=True)
+    tmp = path + '.tmp'
+    with open(tmp, 'wb') as f:
+        f.write(blob)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    with open(path, 'rb') as f:
+        os.fsync(f.fileno())
+    _fsync_dir(parent)
+
+
+def _read_journal(path):
+    try:
+        with open(path, 'rb') as f:
+            raw = f.read()
+    except OSError:
+        return None
+    try:
+        text = raw.decode('ascii')
+    except UnicodeDecodeError:
+        return None
+    fields = {}
+    for line in text.split('\n'):
+        if not line:
+            continue
+        if '=' not in line or line.split('=', 1)[0] in fields:
+            return None
+        key, val = line.split('=', 1)
+        fields[key] = val
+    if set(fields) != {'state', 'from', 'to', 'path', 'absent'}:
+        return None
+    if fields['state'] not in ('progress', 'done') or fields['path'] not in UPGRADE_ALLOW:
+        return None
+    if fields['absent'] not in ('0', '1'):
+        return None
+    fr, to = _ver_tuple(fields['from']), _ver_tuple(fields['to'])
+    if fr is None or to is None:
+        return None
+    fields['from_t'] = fr
+    fields['to_t'] = to
+    return fields
+
+
+def _discard_journal(root):
+    journal = os.path.join(root, _JOURNAL_DIR, 'journal')
+    try:
+        os.remove(journal)
+    except OSError:
+        pass
+    shutil.rmtree(os.path.join(root, _JOURNAL_DIR), ignore_errors=True)
+
+
+def _restore_backup(dest, backup, absent):
+    try:
+        if absent:
+            if os.path.lexists(dest):
+                os.remove(dest)
+            return not os.path.lexists(dest)
+        with open(backup, 'rb') as f:
+            data = f.read()
+        _atomic_write(dest, data)
+        with open(dest, 'rb') as f:
+            return f.read() == data
+    except OSError:
+        return False
+
+
+def _unchanged(dest, original, absent):
+    if absent:
+        return not os.path.lexists(dest)
+    try:
+        with open(dest, 'rb') as f:
+            return f.read() == original
+    except OSError:
+        return False
+
+
+def _nested(path, parent):
+    if IS_WIN:
+        path = os.path.normcase(path)
+        parent = os.path.normcase(parent)
+    try:
+        return os.path.commonpath([path, parent]) == parent
+    except ValueError:
+        return False
+
+
+def _probe_writable(root):
+    probe = os.path.join(root, _PROBE_NAME)
+    fd = None
+    try:
+        fd = os.open(probe, os.O_CREAT | os.O_RDWR, 0o600)
+        os.write(fd, b'1')
+        return True
+    except OSError:
+        return False
+    finally:
+        if fd is not None:
+            os.close(fd)
+        try:
+            os.remove(probe)
+        except OSError:
+            pass
+
+
+def _root_reason(root):
+    real = os.path.realpath(root)
+    if real == os.path.realpath('/opt/qianxun'):
+        return 'opt'
+    if _EXTRACT_DIR.match(os.path.basename(real.rstrip('/\\'))) and os.path.exists(os.path.join(real, '.complete')):
+        return 'extract'
+    banned = [CONF_DIR, CACHE_DIR]
+    if IS_WIN:
+        banned.append(win_data_dir())
+    for folder in banned:
+        if folder and _nested(real, os.path.realpath(folder)):
+            return 'nowrite'
+    if not _probe_writable(root):
+        return 'nowrite'
+    return ''
+
+
+def _decision(fr, to, disk):
+    if disk is None:
+        return 'version'
+    if fr == to:
+        return 'already' if disk == to else 'version'
+    if disk == to and fr < to:
+        return 'already'
+    if disk > to or disk < fr:
+        return 'version'
+    if fr <= disk < to:
+        return 'write'
+    return 'version'
+
+
+def _result(outcome, needs_restart=False, disk_version='', from_version='', to_version='',
+            root='', paths=(), reason=''):
+    return ApplyResult(outcome, needs_restart, disk_version, from_version, to_version, root, paths, reason)
+
+
+def _gate(fr, to, disk, running, root, paths):
+    disk_s = _fmt_ver(disk) if disk else '（未知）'
+    fr_s, to_s = _fmt_ver(fr), _fmt_ver(to)
+    decision = _decision(fr, to, disk)
+    if decision == 'write':
+        return None
+    if decision == 'already':
+        return _result('already', needs_restart=(running != disk), disk_version=disk_s,
+                       from_version=fr_s, to_version=to_s, root=root, paths=paths)
+    return _result('refused', disk_version=disk_s, from_version=fr_s, to_version=to_s,
+                   root=root, paths=paths, reason='version')
+
+
+def _commit(root, fr, to, files):
+    rel, = UPGRADE_ALLOW
+    dest = _under(root, rel)
+    journal = os.path.join(root, _JOURNAL_DIR, 'journal')
+    backup = _under(os.path.join(root, _JOURNAL_DIR, 'backup'), rel)
+    absent = not os.path.lexists(dest)
+    original = None
+    journaled = False
+    try:
+        if not absent:
+            with open(dest, 'rb') as f:
+                original = f.read()
+        if absent:
+            os.makedirs(os.path.join(root, _JOURNAL_DIR), exist_ok=True)
+        else:
+            os.makedirs(os.path.dirname(backup), exist_ok=True)
+            shutil.copyfile(dest, backup)
+            with open(backup, 'rb+') as f:
+                if f.read() != original:
+                    raise OSError('backup mismatch')
+                f.flush()
+                os.fsync(f.fileno())
+            _fsync_dir(os.path.dirname(backup))
+        _write_journal(journal, 'progress', fr, to, rel, absent)
+        journaled = True
+        _atomic_write(dest, files[rel])
+        _write_journal(journal, 'done', fr, to, rel, absent)
+        return 'applied'
+    except Exception:
+        if not journaled:
+            _discard_journal(root)
+            if _unchanged(dest, original, absent):
+                return 'rolled_back'
+            return 'rollback_failed'
+        if _restore_backup(dest, backup, absent):
+            _discard_journal(root)
+            return 'rolled_back'
+        return 'rollback_failed'
+
+
+def pack_incremental(from_version, tree, out_zip):
+    fr = _ver_tuple(from_version if isinstance(from_version, str) else '')
+    if fr is None:
+        raise UpgradeError('from_version 不是 x.y.z')
+    rel, = UPGRADE_ALLOW
+    src = _under(tree, rel)
+    if os.path.islink(src) or not os.path.isfile(src):
+        raise UpgradeError('缺少 %s' % rel)
+    with open(src, 'rb') as f:
+        data = f.read(_MEMBER_MAX + 1)
+    if len(data) > _MEMBER_MAX:
+        raise UpgradeError('%s 超过大小限制' % rel)
+    to = _version_in_bytes(data)
+    if to is None:
+        raise UpgradeError('tree 里没有 VERSION')
+    if fr > to:
+        raise UpgradeError('from_version 高于 tree 的 VERSION')
+    try:
+        rel.encode('ascii')
+        UPGRADE_META.encode('ascii')
+    except UnicodeEncodeError:
+        raise UpgradeError('包内文件名不是 ASCII')
+    parent = os.path.dirname(os.path.abspath(out_zip))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp = out_zip + '.part'
+    try:
+        with zipfile.ZipFile(tmp, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            meta_info = zipfile.ZipInfo(UPGRADE_META)
+            meta_info.compress_type = zipfile.ZIP_DEFLATED
+            meta_info.external_attr = (stat.S_IFREG | 0o644) << 16
+            zf.writestr(meta_info, ('%s\n%s\n' % (_fmt_ver(fr), _fmt_ver(to))).encode('ascii'))
+            info = zipfile.ZipInfo(rel)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = (stat.S_IFREG | 0o644) << 16
+            zf.writestr(info, data)
+        os.replace(tmp, out_zip)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+    out = os.path.abspath(out_zip)
+    if sys.stdout is not None:
+        print(out)
+    return out
+
+
+def install_root(script_file):
+    folder = os.path.dirname(os.path.abspath(script_file))
+    if os.path.basename(folder) != 'app':
+        raise UpgradeError('程序不在 app 目录里')
+    return os.path.dirname(folder)
+
+
+def reconcile_upgrade(root):
+    journal = os.path.join(root, _JOURNAL_DIR, 'journal')
+    if not os.path.isfile(journal):
+        return None
+    fields = _read_journal(journal)
+    if fields is None:
+        return None
+    dest = _under(root, fields['path'])
+    if fields['state'] == 'done':
+        if _version_on_disk(dest) == fields['to_t']:
+            _discard_journal(root)
+        return None
+    backup = _under(os.path.join(root, _JOURNAL_DIR, 'backup'), fields['path'])
+    if _restore_backup(dest, backup, fields['absent'] == '1'):
+        _discard_journal(root)
+        return _ROLLBACK_NOTE
+    return _ROLLBACK_FAIL_NOTE
+
+
+def apply_upgrade(zip_path, root, confirm, running_version):
+    root = os.path.abspath(root)
+    note = reconcile_upgrade(root)
+    if note == _ROLLBACK_NOTE:
+        return _result('rolled_back', root=root)
+    if note:
+        return _result('rollback_failed', root=root)
+    try:
+        fr, to, files = _read_pack(zip_path)
+    except _Rejected as exc:
+        return _result('refused', root=root, reason=exc.reason)
+    paths = UPGRADE_ALLOW
+    running = _running_tuple(running_version)
+    disk = _version_on_disk(_under(root, UPGRADE_ALLOW[0]))
+    gated = _gate(fr, to, disk, running, root, paths)
+    if gated is not None:
+        return gated
+    reason = _root_reason(root)
+    if reason:
+        disk_s = _fmt_ver(disk) if disk else '（未知）'
+        return _result('refused', disk_version=disk_s, from_version=_fmt_ver(fr), to_version=_fmt_ver(to),
+                       root=root, paths=paths, reason=reason)
+    inspect = UpgradeInspect(_fmt_ver(fr), _fmt_ver(to), _fmt_ver(disk), root, paths)
+    if not confirm(inspect):
+        return _result('cancelled', disk_version=inspect.disk_version, from_version=inspect.from_version,
+                       to_version=inspect.to_version, root=root, paths=paths)
+    try:
+        fr2, to2, files2 = _read_pack(zip_path)
+    except _Rejected as exc:
+        return _result('refused', disk_version=inspect.disk_version, from_version=inspect.from_version,
+                       to_version=inspect.to_version, root=root, paths=paths, reason=exc.reason)
+    if (fr2, to2) != (fr, to):
+        return _result('refused', disk_version=inspect.disk_version, from_version=inspect.from_version,
+                       to_version=inspect.to_version, root=root, paths=paths, reason='bad_zip')
+    disk2 = _version_on_disk(_under(root, UPGRADE_ALLOW[0]))
+    gated = _gate(fr2, to2, disk2, running, root, paths)
+    if gated is not None:
+        return gated
+    outcome = _commit(root, fr2, to2, files2)
+    disk_s = _fmt_ver(disk2) if disk2 else inspect.disk_version
+    if outcome == 'applied':
+        return _result('applied', needs_restart=True, disk_version=_fmt_ver(to2), from_version=_fmt_ver(fr2),
+                       to_version=_fmt_ver(to2), root=root, paths=paths)
+    if outcome == 'rolled_back':
+        return _result('rolled_back', disk_version=disk_s, from_version=_fmt_ver(fr2), to_version=_fmt_ver(to2),
+                       root=root, paths=paths)
+    return _result('rollback_failed', disk_version=disk_s, from_version=_fmt_ver(fr2), to_version=_fmt_ver(to2),
+                   root=root, paths=paths)
+
+
+def upgrade_confirm_text(inspect):
+    paths = '、'.join(inspect.paths)
+    return ('将把千寻从 %s 升级到 %s。\n安装目录：%s\n只替换这些文件：%s。配置、索引和日志不会改动。\n'
+            '确定后会退出并重新打开千寻。') % (
+                inspect.disk_version, inspect.to_version, inspect.root, paths)
+
+
+def upgrade_notice(result):
+    if result.outcome == 'cancelled':
+        return '', ''
+    if result.outcome == 'already':
+        if result.needs_restart:
+            return 'status', '文件已是 %s。正在退出并重新打开千寻。' % result.disk_version
+        return 'information', '已是 %s，未修改任何文件。' % result.disk_version
+    if result.outcome == 'applied':
+        return 'status', '已写入 %s。正在退出并重新打开千寻。只关窗口会留在托盘，仍是旧程序。' % result.to_version
+    if result.outcome == 'rolled_back':
+        return 'warning', '升级没有完成，已恢复原来的文件。'
+    if result.outcome == 'rollback_failed':
+        return 'warning', '升级没有完成，恢复也不完整。请用完整包重新覆盖这个目录。配置和索引没有改动。'
+    if result.reason in ('opt', 'nowrite'):
+        return 'warning', ('此目录不能增量升级：%s。系统安装（/opt/qianxun）和没有写权限的目录请安装完整包。'
+                           '绿色版、用户目录里的千寻和 qianxun-portable 可以直接升级。') % result.root
+    if result.reason == 'extract':
+        return 'warning', ('当前运行在单文件版释放的目录里。更换便携 exe，或删掉 .complete 后，这里的修改会丢失。'
+                           '请改用解压后的文件夹版。')
+    if result.reason == 'bad_path':
+        return 'warning', '升级包里有不允许的路径，已拒绝，未改动任何文件。'
+    if result.reason == 'version':
+        return 'warning', '当前版本是 %s，此升级包要求不低于 %s、低于 %s。版本不一致时不会改动文件。' % (
+            result.disk_version, result.from_version, result.to_version)
+    return 'warning', '无法读取升级包。请选择千寻增量包，而不是完整安装包。'
+
+
 # ----------------------------------------------------------------------------
 #  界面
 # ----------------------------------------------------------------------------
@@ -3311,6 +3858,7 @@ if HAVE_QT:
             self._act(m, '打开日志目录', lambda: open_path(CACHE_DIR))
             m = mb.addMenu('帮助(&H)')
             self._act(m, '搜索语法与快捷键', self.show_help, 'F1')
+            self._act(m, '增量升级…', self.incremental_upgrade)
             self._act(m, '关于千寻', self.show_about)
 
             # 结果区快捷键
@@ -3871,6 +4419,38 @@ if HAVE_QT:
             else:
                 QMessageBox.warning(self, APP_NAME, '未能提升（已取消或权限不足）。')
 
+        def incremental_upgrade(self):
+            path, _chosen = QFileDialog.getOpenFileName(self, '选择升级包', HOME, 'Zip 压缩包 (*.zip)')
+            if not path:
+                return
+            result = apply_upgrade(path, install_root(__file__), self._confirm_upgrade, VERSION)
+            kind, text = upgrade_notice(result)
+            if result.needs_restart:
+                if text:
+                    self.statusBar().showMessage(text, 5000)
+                    QApplication.processEvents()
+                restart_after_upgrade(self, getattr(self, 'server', None))
+                return
+            if kind == 'information' and text:
+                QMessageBox.information(self, '增量升级', text)
+            elif kind == 'warning' and text:
+                QMessageBox.warning(self, '增量升级', text)
+
+        def _confirm_upgrade(self, inspect):
+            dlg = QDialog(self)
+            dlg.setWindowTitle('增量升级')
+            lay = QVBoxLayout(dlg)
+            lab = QLabel(upgrade_confirm_text(inspect))
+            lab.setWordWrap(True)
+            lay.addWidget(lab)
+            bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+            bb.button(QDialogButtonBox.Ok).setText('确定')
+            bb.button(QDialogButtonBox.Cancel).setText('取消')
+            bb.accepted.connect(dlg.accept)
+            bb.rejected.connect(dlg.reject)
+            lay.addWidget(bb)
+            return qexec(dlg) == QDialog.Accepted
+
         def show_help(self):
             dlg = QDialog(self)
             dlg.setWindowTitle('搜索语法与快捷键')
@@ -4078,9 +4658,68 @@ if HAVE_QT:
 
 SERVER_NAME = server_name()
 
+_SPAWN_FAIL = ('文件已更新，但没能启动新进程。请用“文件 → 退出”结束千寻，再重新打开。'
+               '只关窗口会留在托盘，仍是旧版本。')
+
+
+def restart_after_upgrade(win, server):
+    win.quitting = True
+    win.save_state()
+    win.hide()
+    if win.tray is not None:
+        win.tray.hide()
+    win.engine.post('quit')
+    win.engine.join(15)
+    if server is not None:
+        server.close()
+    QLocalServer.removeServer(SERVER_NAME)
+    try:
+        env = os.environ.copy()
+        if IS_WIN:
+            launcher = env.get('QIANXUN_LAUNCHER')
+            if launcher:
+                argv = [launcher]
+            else:
+                argv = [launcher_command(env)[0], os.path.abspath(__file__)]
+            flags = 0
+            if hasattr(subprocess, 'DETACHED_PROCESS'):
+                flags |= subprocess.DETACHED_PROCESS
+            if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
+                flags |= subprocess.CREATE_NEW_PROCESS_GROUP
+            subprocess.Popen(argv, creationflags=flags, close_fds=True, env=env)
+        else:
+            subprocess.Popen([sys.executable, os.path.abspath(__file__)],
+                             start_new_session=True, env=env, close_fds=True)
+    except Exception:
+        log('upgrade spawn:\n' + traceback.format_exc())
+        if server is not None:
+            try:
+                server.listen(SERVER_NAME)
+            except Exception:
+                log('upgrade listen:\n' + traceback.format_exc())
+        win.quitting = False
+        if win.tray is not None:
+            win.tray.show()
+        win.show_raise()
+        QMessageBox.warning(win, '增量升级', _SPAWN_FAIL)
+        return
+    app = QApplication.instance()
+    if app is not None:
+        app.quit()
+
 
 def main():
     args = sys.argv[1:]
+    if args[:1] == ['--pack-incremental']:
+        if len(args) != 4:
+            return 1
+        try:
+            pack_incremental(args[1], args[2], args[3])
+        except Exception as exc:
+            if sys.stderr is not None:
+                sys.stderr.write('%s\n' % exc)
+            return 1
+        return 0
     if '--version' in args:
         if sys.stdout is not None:      # pythonw.exe 下没有 stdout
             print('%s %s' % (APP_ID, VERSION))
@@ -4137,6 +4776,7 @@ def main():
     QLocalServer.removeServer(SERVER_NAME)
     server = QLocalServer()
     server.listen(SERVER_NAME)
+    upgrade_note = reconcile_upgrade(install_root(__file__))
 
     icon = make_app_icon()
     app.setWindowIcon(icon)
@@ -4153,6 +4793,7 @@ def main():
     engine = make_engine(index, cfg)
     engine.start()
     win = MainWindow(cfg, index, engine, icon)
+    win.server = server
     if IS_WIN:
         try:
             engine.hwnd = int(win.winId())
@@ -4213,6 +4854,8 @@ def main():
 
     if msg != 'hidden' or win.tray is None:
         win.show_raise()
+    if upgrade_note:
+        QMessageBox.information(win, '增量升级', upgrade_note)
     return qexec(app)
 
 

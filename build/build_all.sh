@@ -11,4 +11,8 @@ bash "$ROOT/build/fetch_all.sh"
 sh   "$ROOT/build/linux/build_release.sh"
 bash "$ROOT/build/windows/build_win.sh"
 bash "$ROOT/build/windows/package_native.sh"
+VER=$(sed -n "s/^VERSION = '\(.*\)'$/\1/p" "$ROOT/app/qianxun.py")
+[ -n "$VER" ] || { echo "VERSION not found in app/qianxun.py" >&2; exit 1; }
+mkdir -p "$WORK/dist"
+python3 "$ROOT/app/qianxun.py" --pack-incremental "$VER" "$ROOT" "$WORK/dist/qianxun-${VER}-incremental.zip"
 cd "$WORK/dist" && sha256sum $(ls *.deb *.tar.gz *.zip *.exe) > SHA256SUMS.txt && cat SHA256SUMS.txt
