@@ -26,8 +26,9 @@ _work/                    （gitignore）运行库、Wine 前缀、发布包等�
 - **离线、免安装、无需管理员权限**；运行库全部内嵌；目标机器常为不联网的银河麒麟 V10（含国防版，kysec 可能拦截未签名程序）。
 - **压缩包内文件名一律 ASCII**（用户机器上 UTF-8 与 GBK 文件名都出过乱码）；外层文件名可中文。zip 用 Python zipfile 写，构建脚本会 `.encode('ascii')` 校验。
 - 包内**不得有符号链接**（U 盘 FAT/exFAT/NTFS 上解压会失败），`build_release.sh` 发现即报错。
-- 交付时附 `SHA256SUMS.txt`；中文说明文档用全角标点。
-- 每次改动后重跑测试并重新打全部包，各包内 `qianxun.py` 必须一致（核对 sha256）。
+- 交付时附 `SHA256SUMS.txt`。中文说明文档用全角标点。正式 Release 页的资产是免安装包和 `SHA256SUMS.txt`。`qianxun-v1.2.1` 的校验文件不含 deb。本地 `build/linux/build_release.sh` 仍会生成 deb。`.github/workflows/qianxun-release.yml` 的上传命令仍包含 `*.deb`。deb 不是正式资产。
+- PR 自动检查以 `.github/workflows/qianxun-ci.yml` 为准。它做 `python -m py_compile app/qianxun.py`、`tests/qa/test_engine.py`、`tests/qa/test_search.py`，以及 `bash native/build.sh` 和 `tests/native_diff/check_imports.sh`。该检查不运行 `build/build_all.sh`。
+- 发版打包时，各包内 `qianxun.py` 必须一致（核对 sha256）。
 
 ## 4. 关键技术决定与踩过的坑
 **运行库**
@@ -99,7 +100,7 @@ bash build/build_all.sh                  # 以上全部，并生成 _work/dist/S
 2026-10-22 已在空的 QX_WORK 中实测 `build/build_all.sh`：约 4 分钟，从零产出全部 11 个发布物；运行库与原件逐文件一致（见 docs/BUILD_RUNTIMES.md），原生 exe 与已交付版本仅 PE 时间戳不同。
 
 **增量升级**
-- 完整包是 deb、绿色版 tar.gz 和 zip、Windows 文件夹 zip、portable exe、原生版 zip。从 1.1.0 升到 1.2.0，以及更换 Python、Qt、启动器或原生 exe，都只能安装完整包。
+- 从 1.1.0 升到 1.2.0，以及更换 Python、Qt、启动器或原生 exe，都只能安装完整包。发布页上的完整包是绿色版 tar.gz 和 zip、Windows 文件夹 zip、portable exe、原生版 zip。
 - 增量包是 `qianxun-<版本>-incremental.zip`。1.2.0 及以上打开 **帮助 → 增量升级…**，选中 zip 并确认。不需要命令行。
 - `build/build_all.sh` 在 `sha256sum` 之前，用 `VERSION` 行作为 from_version，把同版本空包打到 `_work/dist/`。单独打包：`python3 app/qianxun.py --pack-incremental 1.2.0 . _work/dist/qianxun-1.2.0-incremental.zip`。
 - 1.2.0 这包与已安装版本相同，不改文件。之后的包把 from_version 设为 1.2.0，或设为一台机器上已安装的更高版本。to_version 取树里的 `VERSION` 行。

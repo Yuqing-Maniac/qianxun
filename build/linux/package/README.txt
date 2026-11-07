@@ -13,8 +13,7 @@
 1. 绿色版：解压后双击 qianxun.sh，或在终端中进入目录运行 ./qianxun.sh。
 2. 用户安装：运行 ./install.sh，可加 --autostart 同时设置登录后自动启动（后台隐藏运行）。程序安装到 ~/.local/share/qianxun，并在应用菜单与桌面创建快捷方式，终端可直接输入 qianxun 启动。
 3. 系统级安装：sudo ./install.sh --system（安装到 /opt/qianxun，所有用户可用）。
-4. deb 包：sudo dpkg -i qianxun_*.deb
-5. 卸载：./uninstall.sh（加 --purge 同时删除配置与缓存；系统级卸载使用 sudo ./uninstall.sh --system）。
+4. 卸载：./uninstall.sh（加 --purge 同时删除配置与缓存；系统级卸载使用 sudo ./uninstall.sh --system）。
 
 解压注意事项（绿色版）：
 （1）请先把压缩包复制到本机硬盘（如“主目录”或“桌面”）再解压，不要直接在 U 盘里解压。U 盘多为 FAT32／exFAT／NTFS 格式，不支持 Linux 的可执行权限，解压会报错或解压后无法运行。若确实从 U 盘运行，程序首次启动会自动复制到 ~/.local/share/qianxun-portable 再运行。
@@ -77,7 +76,7 @@ qianxun --toggle
 
 七、增量升级
 
-完整包是 deb、绿色版 tar.gz 和 zip、Windows 文件夹 zip、单文件 portable exe，以及原生版 zip。从 1.1.0 升到 1.2.0 只能安装完整包。更换 Python、Qt、启动器或原生 exe，也只能安装完整包。
+从 1.1.0 升到 1.2.0 只能换完整包。发布页上的完整包是绿色版 tar.gz 和 zip、Windows 文件夹 zip、单文件 portable exe，以及原生版 zip。更换 Python、Qt、启动器或原生 exe，也只能换完整包。
 
 增量包的文件名是 qianxun-<版本>-incremental.zip。已经在用 1.2.0 或更新版本时，打开“帮助 → 增量升级…”，选中这个 zip，再点确定。不需要命令行。
 

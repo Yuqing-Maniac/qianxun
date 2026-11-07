@@ -15,17 +15,18 @@
 
 | 平台 | 版本 | 技术路线 | 发布物 |
 |---|---|---|---|
-| 银河麒麟 V10／Ubuntu 20.04 系（x86_64） | 1.2.1 | Python 3.13＋PyQt5（Qt 5.15）自带运行库 | `qianxun_1.2.1_amd64.deb`、`qianxun-1.2.1-kylin-x86_64.tar.gz`／`.zip`（绿色版） |
-| 银河麒麟 V10（飞腾 aarch64） | 1.2.1 | Python 3.13＋PySide6（Qt 6.8）自带运行库 | `qianxun_1.2.1_arm64.deb`、`qianxun-1.2.1-kylin-aarch64.tar.gz`／`.zip` |
+| 银河麒麟 V10／Ubuntu 20.04 系（x86_64） | 1.2.1 | Python 3.13＋PyQt5（Qt 5.15）自带运行库 | `qianxun-1.2.1-kylin-x86_64.tar.gz`、`qianxun-1.2.1-kylin-x86_64.zip`（绿色版） |
+| 银河麒麟 V10（飞腾 aarch64） | 1.2.1 | Python 3.13＋PySide6（Qt 6.8）自带运行库 | `qianxun-1.2.1-kylin-aarch64.tar.gz`、`qianxun-1.2.1-kylin-aarch64.zip` |
 | Windows 10／11（64 位） | 1.2.1 | Python 3.13＋PyQt5（Qt 5.15）＋C 启动器 | `qianxun-1.2.1-windows-x64.zip`、`QianXun-1.2.1-portable.exe` |
 | **Windows 7 SP1～11（64／32 位）** | **1.2.1** | C++17＋纯 Win32 API，单文件零依赖 | `QianXun-x64.exe`、`QianXun-x86.exe`、`qianxun-1.2.1-windows-native.zip` |
 
 Windows 推荐使用原生版（更快、更小、支持 Win7）；Python 版保留作为 Win10／11 的备选。
 
+正式发布页是 [千寻 1.2.1](https://github.com/Yuqing-Maniac/qianxun/releases/tag/qianxun-v1.2.1)。该页提供上表文件、`qianxun-1.2.1-incremental.zip` 和 `SHA256SUMS.txt`。页上没有 deb。下载后在校验文件所在目录执行 `sha256sum -c SHA256SUMS.txt`。
+
 ## 三、安装与使用
 
 **麒麟／Linux**
-- deb：`sudo dpkg -i qianxun_1.2.1_arm64.deb`（x86 机器用 amd64 包）。
 - 绿色版：先把压缩包复制到本机硬盘（不要在 U 盘里解压），`tar -xzf qianxun-1.2.1-kylin-aarch64.tar.gz`，进入目录执行 `sh check.sh` 自检，再 `sh qianxun.sh` 运行；`./install.sh` 安装到当前用户（加 `--autostart` 开机自启），`sudo ./install.sh --system` 安装到系统（`/opt/qianxun`）；`./uninstall.sh` 卸载（`--purge` 同时删除配置与缓存）。
 - 配置 `~/.config/qianxun/`，索引缓存 `~/.cache/qianxun/`。
 
@@ -39,7 +40,7 @@ Windows 推荐使用原生版（更快、更小、支持 Win7）；Python 版保
 
 ## 四、增量升级
 
-完整包是 deb、绿色版 tar.gz 和 zip、Windows 文件夹 zip、单文件 portable exe，以及原生版 zip。从 1.1.0 升到 1.2.0 只能安装完整包。更换 Python、Qt、启动器或原生 exe，也只能安装完整包。
+从 1.1.0 升到 1.2.0 只能换完整包。发布页上的完整包是绿色版 tar.gz 和 zip、Windows 文件夹 zip、单文件 portable exe，以及原生版 zip。更换 Python、Qt、启动器或原生 exe，也只能换完整包。
 
 增量包的文件名是 `qianxun-<版本>-incremental.zip`。已经在用 1.2.0 或更新版本时，打开 **帮助 → 增量升级…**，选中这个 zip，再点确定。不需要命令行。
 
@@ -62,4 +63,4 @@ python3 app/qianxun.py --pack-incremental 1.2.0 . _work/dist/qianxun-1.2.0-incre
 
 ## 五、从源码构建
 
-见 `CLAUDE.md` 的“构建与测试”一节；一条命令构建全部发布包：`bash build/build_all.sh`（产物在 `_work/dist/`）。
+见 `CLAUDE.md` 的“构建与测试”一节。本地全量打包用 `bash build/build_all.sh`。产物在 `_work/dist/`。PR 上的 `qianxun-ci` 只做语法检查、引擎测试、搜索测试，以及原生版编译和导入表核查。该检查不运行 `build/build_all.sh`。
