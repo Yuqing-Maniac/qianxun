@@ -26,7 +26,7 @@ _work/                    （gitignore）运行库、Wine 前缀、发布包等�
 - **离线、免安装、无需管理员权限**；运行库全部内嵌；目标机器常为不联网的银河麒麟 V10（含国防版，kysec 可能拦截未签名程序）。
 - **压缩包内文件名一律 ASCII**（用户机器上 UTF-8 与 GBK 文件名都出过乱码）；外层文件名可中文。zip 用 Python zipfile 写，构建脚本会 `.encode('ascii')` 校验。
 - 包内**不得有符号链接**（U 盘 FAT/exFAT/NTFS 上解压会失败），`build_release.sh` 发现即报错。
-- 交付时附 `SHA256SUMS.txt`。中文说明文档用全角标点。正式 Release 页的资产是免安装包和 `SHA256SUMS.txt`。`qianxun-v1.2.1` 的校验文件不含 deb。本地 `build/linux/build_release.sh` 仍会生成 deb。`.github/workflows/qianxun-release.yml` 的上传命令仍包含 `*.deb`。deb 不是正式资产。
+- 交付时附 `SHA256SUMS.txt`。中文说明文档用全角标点。正式 Release 页的资产是免安装包和 `SHA256SUMS.txt`。`qianxun-v1.2.1` 的校验文件不含 deb。1.2.2 起每个便携包顶层只有一个文件夹和一个入口文件，校验文件也不含 deb 和增量 zip。本地 `build/linux/build_release.sh` 仍会生成 deb。deb 不是正式资产。
 - PR 自动检查以 `.github/workflows/qianxun-ci.yml` 为准。它做 `python -m py_compile app/qianxun.py`、`tests/qa/test_engine.py`、`tests/qa/test_search.py`，以及 `bash native/build.sh` 和 `tests/native_diff/check_imports.sh`。该检查不运行 `build/build_all.sh`。
 - 发版打包时，各包内 `qianxun.py` 必须一致（核对 sha256）。
 
@@ -125,12 +125,12 @@ bash tests/native_diff/run_diff.sh       # 原生版 578 条差分；live_test.p
 - 新增平台差异时，Linux 行为必须不变：先跑一遍 `tests/run_regression.sh` 作为基线，改完再跑一遍对比。
 
 ## 7. 版本号
-发版前以下各处必须一致（当前 1.2.1），并在 `CHANGELOG.md` 新增条目：
+发版前以下各处必须一致（当前 1.2.2），并在 `CHANGELOG.md` 新增条目：
 - `app/qianxun.py` 的 `VERSION`：程序“关于”与 `--version` 显示；**`build/linux/build_release.sh`（变量 `V`）与 `build/windows/build_win.sh`（变量 `VER`）用 sed 从这一行读取**，决定 deb 的 `Version:` 与 deb／tar.gz／zip／portable exe 的文件名，取不到即报错退出。
 - `native/src/app.h` 的 `QX_VERSION_W`：原生版“关于”与 `--version`。
 - `native/res/qianxun.rc`（FILEVERSION／PRODUCTVERSION 及两处字符串）与 `native/res/manifest.xml`：原生 exe 的文件属性。
 - `build/windows/launcher/launcher.rc` 与 `launcher/manifest.xml`：Windows Python 版启动器的文件属性。
-- `build/windows/package_native.sh` 的 `VER`：原生版 zip 文件名（手写，未从源码读取）。
+- `build/windows/package_native.sh` 的版本号从 `app/qianxun.py` 的 `VERSION` 读取，原生版 zip 文件名用它。
 - 文档与测试中的文件名：`README.md` 平台表与安装说明、`native/pkg/README.txt`、`build/windows/README_WIN.txt`、`build/linux/package/README.txt`、`tests/qa/test_install.sh`、`tests/win/wine/l6.sh`／`l7.sh`。
 - `docs/` 下 QA_REPORT、RUNTIME_WIN、WIN_SPEC、PORT_NOTES_WIN 中的 1.0.0 是当时的测试记录，不随版本改。
 - 核查：`git grep -nE "1\.[0-9]+\.[0-9]+" -- qianxun ':!*.json' ':!*/licenses/*'`。

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Re-runnable: assemble $WORK/dist/stage-win/QianXun, zip, portable exe, SHA256SUMS from current sources.
+# Re-runnable: assemble $WORK/dist/stage-win (QianXun.exe beside QianXun/), zip, SHA256SUMS.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd); WORK=${QX_WORK:-$ROOT/_work}
 W=$ROOT/build/windows; RT=$WORK/win/runtime; OBJ=$WORK/win/obj; D=$WORK/dist
@@ -12,13 +12,16 @@ cp $W/launcher/* $OBJ/launcher/
 # icon from svg (generated into the work dir, never into the source tree)
 for s in 16 24 32 48 64 128 256; do rsvg-convert -w $s -h $s $ROOT/assets/icons/qianxun.svg -o $OBJ/ico$s.png; done
 (cd $OBJ && convert ico16.png ico24.png ico32.png ico48.png ico64.png ico128.png ico256.png $OBJ/launcher/qianxun.ico)
-# launchers
+# launcher. The exe carries the icon resource from qianxun.ico.
+[ -s $ROOT/assets/icons/qianxun.svg ] || { echo "missing icon $ROOT/assets/icons/qianxun.svg" >&2; exit 1; }
+[ -s $OBJ/launcher/qianxun.ico ] || { echo "icon was not built" >&2; exit 1; }
 (cd $OBJ/launcher && $WR -c 65001 -O coff launcher.rc -o $OBJ/res.o &&
- $CC -municode -mwindows -O2 -s -Wall -static -o $OBJ/QianXun.exe launcher.c $OBJ/res.o &&
- $CC -municode -mwindows -O2 -s -Wall -static -DPORTABLE -o $OBJ/QianXun-stub.exe launcher.c $OBJ/res.o -lcomctl32 -lz)
-# stage folder
+ $CC -municode -mwindows -O2 -s -Wall -static -o $OBJ/QianXun.exe launcher.c $OBJ/res.o -lole32 -luuid -lshell32)
+python3 $ROOT/build/portable_layout.py exe $OBJ/QianXun.exe
+# stage: QianXun.exe beside the QianXun folder
 S=$D/stage-win/QianXun; rm -rf $D/stage-win; mkdir -p $S/app
-cp $OBJ/QianXun.exe $S/; cp $APP $S/app/qianxun.py; cp -a $RT $S/runtime
+cp $OBJ/QianXun.exe $S/; cp $OBJ/QianXun.exe $D/stage-win/QianXun.exe
+cp $APP $S/app/qianxun.py; cp -a $RT $S/runtime
 python3 - "$W" "$S" <<'PY'
 import sys, os
 w, s = sys.argv[1:]
@@ -34,6 +37,9 @@ else:
 t = t.replace("\r\n", "\n").replace("\n", "\r\n")
 open(os.path.join(s, "README.txt"), "wb").write(b"\xef\xbb\xbf" + t.encode("utf-8"))
 PY
+python3 $ROOT/build/portable_layout.py tree $D/stage-win --folder QianXun --entry QianXun.exe \
+  --need QianXun/app/qianxun.py --need QianXun/runtime/pythonw.exe \
+  --need QianXun/runtime/Lib/site-packages/PyQt5/Qt5/plugins/platforms/qwindows.dll
 # zip (ASCII names, python zipfile)
 Z=$D/qianxun-$VER-windows-x64.zip; rm -f $Z
 python3 - "$D/stage-win" "$Z" <<'PY'
@@ -52,12 +58,12 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         z.writestr(zi, open(p, "rb").read(), compresslevel=9)
 print("zip entries:", len(names))
 PY
-# portable
-P=$D/QianXun-$VER-portable.exe
-python3 $W/pack_portable.py $OBJ/QianXun-stub.exe $S/runtime $S/app $P
+python3 $ROOT/build/portable_layout.py archive $Z --folder QianXun --entry QianXun.exe \
+  --need QianXun/app/qianxun.py --need QianXun/runtime/pythonw.exe \
+  --need QianXun/runtime/Lib/site-packages/PyQt5/Qt5/plugins/platforms/qwindows.dll
 # sums
 touch $D/SHA256SUMS.txt
-grep -v -F -e "qianxun-$VER-windows-x64.zip" -e "QianXun-$VER-portable.exe" $D/SHA256SUMS.txt > $D/SHA256SUMS.tmp || true
-(cd $D && sha256sum "qianxun-$VER-windows-x64.zip" "QianXun-$VER-portable.exe" | sed 's/ \*/  /') >> $D/SHA256SUMS.tmp
+grep -v -F -e "qianxun-$VER-windows-x64.zip" $D/SHA256SUMS.txt > $D/SHA256SUMS.tmp || true
+(cd $D && sha256sum "qianxun-$VER-windows-x64.zip" | sed 's/ \*/  /') >> $D/SHA256SUMS.tmp
 mv $D/SHA256SUMS.tmp $D/SHA256SUMS.txt
-ls -la $Z $P; tail -2 $D/SHA256SUMS.txt
+ls -la $Z; tail -2 $D/SHA256SUMS.txt

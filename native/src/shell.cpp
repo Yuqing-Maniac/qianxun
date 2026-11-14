@@ -8,6 +8,7 @@
 #include <shobjidl.h>
 #include <unordered_map>
 #include <list>
+#include <vector>
 
 namespace qx {
 
@@ -283,6 +284,43 @@ void drag_paths(HWND hw, const std::vector<std::wstring>& paths) {
 }
 
 // ---------------------------------------------------------------- shortcut / autostart
+void ensure_desktop_shortcut() {
+    // First launch, and a launch after the exe moved, writes the desktop shortcut.
+    // A deleted shortcut stays deleted while this exe path is the one already recorded.
+    std::wstring marker = data_dir() + L"\\entry-path.txt";
+    std::wstring exe = exe_path();
+    wchar_t desk[MAX_PATH];
+    if (SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY, nullptr, 0, desk) != S_OK) return;
+    std::wstring lnk = std::wstring(desk) + L"\\千寻.lnk";
+    std::wstring saved;
+    HANDLE h = CreateFileW(marker.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        char buf[4096];
+        DWORD n = 0;
+        if (ReadFile(h, buf, sizeof buf - 1, &n, nullptr) && n > 0) {
+            buf[n] = 0;
+            int w = MultiByteToWideChar(CP_UTF8, 0, buf, -1, nullptr, 0);
+            if (w > 1) {
+                std::vector<wchar_t> wide(w);
+                MultiByteToWideChar(CP_UTF8, 0, buf, -1, wide.data(), w);
+                saved.assign(wide.data());
+            }
+        }
+        CloseHandle(h);
+    }
+    if (saved == exe) return;
+    if (!create_desktop_shortcut(lnk)) return;
+    int bytes = WideCharToMultiByte(CP_UTF8, 0, exe.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (bytes <= 1) return;
+    std::vector<char> utf(bytes);
+    WideCharToMultiByte(CP_UTF8, 0, exe.c_str(), -1, utf.data(), bytes, nullptr, nullptr);
+    h = CreateFileW(marker.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    DWORD wrote = 0;
+    WriteFile(h, utf.data(), (DWORD)(bytes - 1), &wrote, nullptr);
+    CloseHandle(h);
+}
+
 bool create_desktop_shortcut(std::wstring& lnk) {
     wchar_t desk[MAX_PATH];
     if (SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY, nullptr, 0, desk) != S_OK) return false;
