@@ -79,6 +79,7 @@ int WINAPI wWinMain(HINSTANCE hinst, HINSTANCE, PWSTR, int) {
     }
 
     OleInitialize(nullptr);
+    ensure_desktop_shortcut();
     INITCOMMONCONTROLSEX icc = {sizeof icc, ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES | ICC_STANDARD_CLASSES |
                                                 ICC_HOTKEY_CLASS | ICC_WIN95_CLASSES};
     InitCommonControlsEx(&icc);

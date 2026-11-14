@@ -30,5 +30,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd _work/dist
+          test -f SHA256SUMS.txt
           gh release upload "${{ github.event.release.tag_name }}" --repo "$GITHUB_REPOSITORY" --clobber \
-            *.deb *.tar.gz *.zip *.exe SHA256SUMS.txt
+            qianxun-*-kylin-aarch64.tar.gz qianxun-*-windows-x64.zip SHA256SUMS.txt

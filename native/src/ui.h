@@ -123,6 +123,7 @@ bool shell_context_menu(HWND h, const std::vector<std::wstring>& paths, POINT pt
 LRESULT shell_menu_msg(UINT msg, WPARAM wp, LPARAM lp, bool* handled);
 void drag_paths(HWND h, const std::vector<std::wstring>& paths);
 bool create_desktop_shortcut(std::wstring& lnk);
+void ensure_desktop_shortcut();
 std::wstring autostart_get();
 bool autostart_set(bool on);
 std::wstring autostart_command();

@@ -15,10 +15,22 @@ for ARCH in x86_64 aarch64; do
   if [ -d "$WORK/syspyqt/$ARCH" ]; then mkdir -p "$S/syspyqt"; cp -a "$WORK/syspyqt/$ARCH" "$S/syspyqt/"; fi
   find "$S" -name __pycache__ -prune -exec rm -rf {} +
   chmod 755 "$S/qianxun.sh" "$S/install.sh" "$S/uninstall.sh" "$S/check.sh"
-  # green tarball
-  tar -C "$OUT/stage-$ARCH" --owner=0 --group=0 --format=gnu -czf "$OUT/qianxun-$V-kylin-$ARCH.tar.gz" qianxun
+  cp "$PKG/qianxun-entry.sh" "$OUT/stage-$ARCH/qianxun.sh"
+  chmod 755 "$OUT/stage-$ARCH/qianxun.sh"
+  case $ARCH in
+    x86_64) QTREL="qianxun/runtime/x86_64/lib/python3.13/site-packages/PyQt5/Qt5/plugins/platforms/libqxcb.so"; EXTRA="" ;;
+    aarch64) QTREL="qianxun/runtime/aarch64/lib/python3.13/site-packages/PySide6/Qt/plugins/platforms/libqxcb.so"
+             EXTRA="--need qianxun/runtime/aarch64/lib/python3.13/site-packages/PySide6/Qt/lib/libxcb-cursor.so.0" ;;
+  esac
+  python3 "$ROOT/build/portable_layout.py" tree "$OUT/stage-$ARCH" --folder qianxun --entry qianxun.sh \
+    --need qianxun/app/qianxun.py --need qianxun/app/qianxun-256.png --need "qianxun/runtime/$ARCH/bin/python3.13" --need "$QTREL" $EXTRA
   [ -z "$(find "$S" -type l)" ] || { echo "symlinks found in $S" >&2; exit 1; }
-  (cd "$OUT/stage-$ARCH" && zip -r -q -X -9 "$OUT/qianxun-$V-kylin-$ARCH.zip" qianxun)
+  tar -C "$OUT/stage-$ARCH" --owner=0 --group=0 --format=gnu -czf "$OUT/qianxun-$V-kylin-$ARCH.tar.gz" qianxun qianxun.sh
+  (cd "$OUT/stage-$ARCH" && zip -r -q -X -9 "$OUT/qianxun-$V-kylin-$ARCH.zip" qianxun qianxun.sh)
+  python3 "$ROOT/build/portable_layout.py" archive "$OUT/qianxun-$V-kylin-$ARCH.tar.gz" --folder qianxun --entry qianxun.sh \
+    --need qianxun/app/qianxun.py --need qianxun/app/qianxun-256.png --need "qianxun/runtime/$ARCH/bin/python3.13" --need "$QTREL" $EXTRA
+  python3 "$ROOT/build/portable_layout.py" archive "$OUT/qianxun-$V-kylin-$ARCH.zip" --folder qianxun --entry qianxun.sh \
+    --need qianxun/app/qianxun.py --need qianxun/app/qianxun-256.png --need "qianxun/runtime/$ARCH/bin/python3.13" --need "$QTREL" $EXTRA
   # deb
   D=$OUT/deb-$ARCH; mkdir -p "$D/DEBIAN" "$D/opt" "$D/usr/bin" "$D/usr/share/applications"
   cp -a "$S" "$D/opt/qianxun"; rm -f "$D/opt/qianxun/install.sh" "$D/opt/qianxun/uninstall.sh"

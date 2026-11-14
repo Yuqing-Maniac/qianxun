@@ -1,6 +1,8 @@
 /*
  * 千寻 QianXun launcher.
- *   QianXun.exe           : runtime\pythonw.exe + app\qianxun.py next to the exe
+ *   QianXun.exe           : runtime\pythonw.exe + app\qianxun.py in the exe directory,
+ *                           or in the sibling QianXun\ folder when the exe sits beside it.
+ *                           The first launch writes a desktop shortcut that uses this exe's icon.
  *   QianXun-portable.exe  : (-DPORTABLE) payload appended to the exe, extracted
  *                           once to %LOCALAPPDATA%\QianXun\rt-<hash12>\
  * Build: x86_64-w64-mingw32-gcc -municode -mwindows -O2 -s [-DPORTABLE] launcher.c res.o -lz
@@ -54,6 +56,105 @@ static int exists_file(const wchar_t *p)
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+/* The shipped zip puts QianXun.exe beside the QianXun folder. A copy inside the
+ * folder still finds runtime next to itself. */
+static void app_home(const wchar_t *dir, wchar_t *base, size_t cap)
+{
+    _snwprintf(base, cap, L"%ls\\QianXun", dir);
+    base[cap - 1] = 0;
+    wchar_t py[MAX_PATH * 2];
+    _snwprintf(py, MAX_PATH * 2, L"%ls\\runtime\\pythonw.exe", base);
+    py[MAX_PATH * 2 - 1] = 0;
+    if (!exists_file(py)) {
+        wcsncpy(base, dir, cap);
+        base[cap - 1] = 0;
+    }
+}
+
+static int read_marker(const wchar_t *path, wchar_t *out, size_t cap)
+{
+    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    char buf[4096];
+    DWORD n = 0;
+    BOOL ok = ReadFile(h, buf, sizeof buf - 1, &n, NULL);
+    CloseHandle(h);
+    if (!ok || n == 0) return 0;
+    buf[n] = 0;
+    int w = MultiByteToWideChar(CP_UTF8, 0, buf, -1, out, (int)cap);
+    return w > 0;
+}
+
+static void write_marker(const wchar_t *path, const wchar_t *exe)
+{
+    wchar_t dir[MAX_PATH * 2];
+    wcsncpy(dir, path, MAX_PATH * 2);
+    dir[MAX_PATH * 2 - 1] = 0;
+    wchar_t *sl = wcsrchr(dir, L'\\');
+    if (!sl) return;
+    *sl = 0;
+    CreateDirectoryW(dir, NULL);
+    char utf[4096];
+    int n = WideCharToMultiByte(CP_UTF8, 0, exe, -1, utf, sizeof utf, NULL, NULL);
+    if (n <= 1) return;
+    HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return;
+    DWORD wrote = 0;
+    WriteFile(h, utf, (DWORD)(n - 1), &wrote, NULL);
+    CloseHandle(h);
+}
+
+static void save_link(const wchar_t *lnk, const wchar_t *exe, const wchar_t *work)
+{
+    IShellLinkW *sl = NULL;
+    HRESULT hr = CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (void **)&sl);
+    if (FAILED(hr) || !sl) return;
+    sl->lpVtbl->SetPath(sl, exe);
+    sl->lpVtbl->SetWorkingDirectory(sl, work);
+    sl->lpVtbl->SetIconLocation(sl, exe, 0);
+    sl->lpVtbl->SetDescription(sl, L"\u5343\u5bfb \u6587\u4ef6\u79d2\u641c");
+    IPersistFile *pf = NULL;
+    if (SUCCEEDED(sl->lpVtbl->QueryInterface(sl, &IID_IPersistFile, (void **)&pf)) && pf) {
+        pf->lpVtbl->Save(pf, lnk, TRUE);
+        pf->lpVtbl->Release(pf);
+    }
+    sl->lpVtbl->Release(sl);
+}
+
+/* Create the desktop and start-menu shortcuts once per entry path. No admin, no HKLM.
+ * A later launch from a moved copy rewrites them. Deleting the desktop shortcut
+ * leaves the marker, so it stays deleted. */
+static void ensure_shortcuts(const wchar_t *exe, const wchar_t *work)
+{
+    wchar_t root[MAX_PATH];
+    DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", root, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return;
+    wchar_t marker[MAX_PATH * 2], saved[MAX_PATH * 2];
+    _snwprintf(marker, MAX_PATH * 2, L"%ls\\QianXun\\entry-path.txt", root);
+    marker[MAX_PATH * 2 - 1] = 0;
+    int have = read_marker(marker, saved, MAX_PATH * 2);
+    if (have && wcscmp(saved, exe) == 0) return;
+    wchar_t desk[MAX_PATH];
+    if (SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, desk) != S_OK) return;
+    wchar_t lnk[MAX_PATH * 2];
+    _snwprintf(lnk, MAX_PATH * 2, L"%ls\\\u5343\u5bfb.lnk", desk);
+    lnk[MAX_PATH * 2 - 1] = 0;
+
+    HRESULT hr = CoInitialize(NULL);
+    int uninit = SUCCEEDED(hr);
+    if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) return;
+    save_link(lnk, exe, work);
+    wchar_t programs[MAX_PATH];
+    if (SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, programs) == S_OK) {
+        wchar_t menu[MAX_PATH * 2];
+        _snwprintf(menu, MAX_PATH * 2, L"%ls\\\u5343\u5bfb.lnk", programs);
+        menu[MAX_PATH * 2 - 1] = 0;
+        save_link(menu, exe, work);
+    }
+    write_marker(marker, exe);
+    if (uninit) CoUninitialize();
+}
+
 /* Launch <base>\runtime\pythonw.exe -X utf8 "<base>\app\qianxun.py" <args> */
 static int launch(const wchar_t *base, const wchar_t *self_path)
 {
@@ -67,8 +168,8 @@ static int launch(const wchar_t *base, const wchar_t *self_path)
         _snwprintf(m, sizeof m / sizeof m[0],
             L"找不到运行环境或程序文件。\n\n"
             L"缺少：%ls\n\n"
-            L"请重新解压完整的“千寻”文件夹，"
-            L"不要单独复制 QianXun.exe。",
+            L"\u8bf7\u628a QianXun.exe \u548c\u65c1\u8fb9\u7684 QianXun \u6587\u4ef6\u5939\u653e\u5728\u4e00\u8d77\uff0c"
+            L"\u4e0d\u8981\u53ea\u62f7\u8d70\u7a0b\u5e8f\u3002",
             exists_file(py) ? app : py);
         m[sizeof m / sizeof m[0] - 1] = 0;
         fail_box(m);
@@ -115,10 +216,17 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE hp, LPWSTR cl, int sw)
     wchar_t self[MAX_PATH * 2];
     DWORD len = GetModuleFileNameW(NULL, self, MAX_PATH * 2);
     if (len == 0 || len >= MAX_PATH * 2) { fail_box(L"无法定位程序自身路径。"); return 1; }
+    wchar_t dir[MAX_PATH * 2];
+    wcscpy(dir, self);
+    wchar_t *sl = wcsrchr(dir, L'\\');
+    if (!sl) { fail_box(L"\u65e0\u6cd5\u5b9a\u4f4d\u7a0b\u5e8f\u81ea\u8eab\u8def\u5f84\u3002"); return 1; }
+    *sl = 0;
     wchar_t base[MAX_PATH * 2];
-    wcscpy(base, self);
-    wchar_t *sl = wcsrchr(base, L'\\');
-    if (sl) *sl = 0;
+    app_home(dir, base, MAX_PATH * 2);
+    wchar_t py[MAX_PATH * 2];
+    _snwprintf(py, MAX_PATH * 2, L"%ls\\runtime\\pythonw.exe", base);
+    py[MAX_PATH * 2 - 1] = 0;
+    if (exists_file(py)) ensure_shortcuts(self, base);
     return launch(base, self);
 }
 
