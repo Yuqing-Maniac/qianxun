@@ -2895,7 +2895,7 @@ def _write_journal(path, state, fr, to, rel, absent):
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
-    with open(path, 'rb') as f:
+    with open(path, 'rb+') as f:
         os.fsync(f.fileno())
     _fsync_dir(parent)
 

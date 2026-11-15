@@ -40,5 +40,10 @@ class Resources(unittest.TestCase):
   rows,ver,sver,gen,unsorted,ms=task.result
   self.assertIsInstance(rows,array);self.assertEqual(len(rows),idx.live)
   self.assertEqual(list(rows),sorted(rows,key=idx.lnames.__getitem__))
+ def test_upgrade_journal_can_be_synced_on_windows(self):
+  with tempfile.TemporaryDirectory() as td:
+   journal=os.path.join(td,'journal')
+   q._write_journal(journal,'progress',(1,2,2),(1,2,3),'app/qianxun.py',False)
+   self.assertEqual(q._read_journal(journal)['state'],'progress')
 
 if __name__=='__main__':unittest.main()

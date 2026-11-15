@@ -7,6 +7,50 @@ on:
   workflow_dispatch:
 
 jobs:
+  linux-regression:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [baseline, current]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.revision == 'baseline' && github.event.pull_request.base.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: 安装完整回归依赖
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb xauth libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0
+          pip install PyQt5==5.15.11 PySide6_Essentials==6.8.0.2
+      - name: 运行完整 Linux 回归并保留各项退出码
+        run: |
+          bash tests/run_regression.sh /tmp/qianxun-regression || true
+          python - <<'PY'
+          from pathlib import Path
+          logs = list(Path('/tmp/qianxun-regression').glob('*.log'))
+          assert logs, 'No regression logs produced'
+          failed = []
+          for p in sorted(logs):
+              text = p.read_text(errors='replace')
+              rc = [s for s in text.splitlines() if s.startswith('rc=')]
+              print(p.name, rc[-1:] or ['missing rc'])
+              # Existing documented PySide6 interpreter teardown issue.
+              known = p.name == 'gui_PySide6.log' and 'GUI FAILED: none' in text and rc[-1:] == ['rc=139']
+              if rc[-1:] != ['rc=0'] and not known:
+                  failed.append(p.name)
+          assert not failed, failed
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-regression-${{ matrix.revision }}
+          path: /tmp/qianxun-regression
+
   test:
     runs-on: ubuntu-24.04
     steps:
