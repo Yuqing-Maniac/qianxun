@@ -17,7 +17,7 @@
 
 解压注意事项（绿色版）：
 （1）请先把压缩包复制到本机硬盘（如“主目录”或“桌面”）再解压，不要直接在 U 盘里解压。U 盘多为 FAT32／exFAT／NTFS 格式，不支持 Linux 的可执行权限，解压会报错或解压后无法运行。若确实从 U 盘运行，程序首次启动会自动复制到 ~/.local/share/qianxun-portable 再运行。
-（2）终端解压命令：tar -xzf qianxun-1.2.2-kylin-aarch64.tar.gz。若下载后文件名变成 .tar（浏览器已自动解开一层），改用 tar -xf 文件名。解压结果的顶层应当只有 qianxun.sh 和 qianxun。
+（2）终端解压命令：tar -xzf qianxun-1.2.3-kylin-aarch64.tar.gz。若下载后文件名变成 .tar（浏览器已自动解开一层），改用 tar -xf 文件名。解压结果的顶层应当只有 qianxun.sh 和 qianxun。
 （3）这是飞腾 aarch64 包。x86_64 机器不能运行里面的运行库。
 （4）解压报错时，先核对文件是否完整：sha256sum 文件名，与 SHA256SUMS.txt 中的值比对，不一致说明拷贝或下载不完整，需重新拷贝。
 
@@ -76,7 +76,7 @@ qianxun --toggle
 
 七、增量升级
 
-从 1.1.0 升到 1.2.0，以及换到 1.2.2 的入口布局，都只能换完整包。这次发布页上的完整包是麒麟 aarch64 的 tar.gz 和 Windows 10／11 的 zip。更换 Python、Qt、启动器或原生 exe，也只能换完整包。
+从 1.1.0 升到 1.2.0，以及换到 1.2.3 的入口布局，都只能换完整包。这次发布页上的完整包是麒麟 aarch64 的 tar.gz 和 Windows 10／11 的 zip。更换 Python、Qt、启动器或原生 exe，也只能换完整包。
 
 增量包的文件名是 qianxun-<版本>-incremental.zip。已经在用 1.2.0 或更新版本时，打开“帮助 → 增量升级…”，选中这个 zip，再点确定。不需要命令行。
 

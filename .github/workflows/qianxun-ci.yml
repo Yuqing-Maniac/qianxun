@@ -26,6 +26,16 @@ jobs:
           cd tests/qa
           timeout 600 python test_search.py | tee ../../search.log
           grep -q "TOTAL FAIL 0" ../../search.log
+      - name: 内存结构与补扫节流测试
+        run: python tests/qa/test_resources.py
+      - name: 安装界面测试依赖
+        run: pip install PyQt5==5.15.11 PySide6_Essentials==6.8.0.2
+      - name: 后台搜索与按需显示测试
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          QIANXUN_QT=PyQt5 python tests/qa/test_async_search.py
+          QIANXUN_QT=PySide6 python tests/qa/test_async_search.py
 
   native:
     runs-on: ubuntu-24.04

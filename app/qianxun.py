@@ -33,10 +33,11 @@ import datetime
 import traceback
 from array import array
 from collections import deque
+from itertools import islice
 
 APP_NAME = '千寻'
 APP_ID = 'qianxun'
-VERSION = '1.2.2'
+VERSION = '1.2.3'
 
 # 平台：同一份源码同时支持 Linux（银河麒麟等）与 Windows 10/11
 IS_WIN = os.name == 'nt'
@@ -423,7 +424,7 @@ class Index(object):
         self.dir_ids[dkey(path)] = did
         self.dir_entry.append(entry)
         self.dir_mtime.append(0.0)
-        self.dir_children.append([])
+        self.dir_children.append(array('I'))
         if entry >= 0:
             self.entry_dir[entry] = did
         self.dirs_version += 1
@@ -459,7 +460,7 @@ class Index(object):
                     for c in self.dir_children[did]:
                         if self.kind[c] != KIND_DEAD:
                             stack.append(c)
-                    self.dir_children[did] = []
+                    self.dir_children[did] = array('I')
                     p = self.dirs[did]
                     if p is not None:
                         self.dir_ids.pop(dkey(p), None)
@@ -614,7 +615,7 @@ class Index(object):
                 return removed
             for c in self.dir_children[did]:
                 self._remove_entry(c, removed)
-            self.dir_children[did] = []
+            self.dir_children[did] = array('I')
             self.dir_ids.pop(dkey(p), None)
             self.dirs[did] = None
             removed.append(did)
@@ -645,7 +646,7 @@ class Index(object):
                 else:
                     for c in self.dir_children[did]:
                         self._remove_entry(c, removed)
-                    self.dir_children[did] = []
+                    self.dir_children[did] = array('I')
                 self.version += 1
             return [], removed
         except OSError:
@@ -676,7 +677,7 @@ class Index(object):
                         if full not in excluded and full not in self.dir_ids:
                             added.append(self._new_dir(full, i))
             k = self.kind
-            self.dir_children[did] = [c for c in self.dir_children[did] if k[c] != KIND_DEAD]
+            self.dir_children[did] = array('I', (c for c in self.dir_children[did] if k[c] != KIND_DEAD))
             self.dir_mtime[did] = mt
             self.version += 1
         if added:
@@ -707,22 +708,22 @@ class Index(object):
         n = len(self.names)
         nd = len(self.dirs)
         kind = self.kind
-        live = [i for i in range(n) if kind[i] != KIND_DEAD]
+        live = array('I', (i for i in range(n) if kind[i] != KIND_DEAD))
         emap = array('i', [-1]) * n
         for new, i in enumerate(live):
             emap[i] = new
-        dlive = [d for d in range(nd) if self.dirs[d] is not None]
+        dlive = array('I', (d for d in range(nd) if self.dirs[d] is not None))
         dmap = array('i', [-1]) * nd
         for new, d in enumerate(dlive):
             dmap[d] = new
         names = self.names
         par = self.parent
         out_names = [names[i] for i in live]
-        out_parent = array('i', [dmap[par[i]] for i in live])
-        out_kind = bytes(bytearray([kind[i] for i in live]))
+        out_parent = array('i', (dmap[par[i]] for i in live))
+        out_kind = bytes(kind[i] for i in live)
         sz, mt = self.size, self.mtime
-        out_size = array('q', [sz[i] for i in live])
-        out_mtime = array('d', [mt[i] for i in live])
+        out_size = array('q', (sz[i] for i in live))
+        out_mtime = array('d', (mt[i] for i in live))
         de = self.dir_entry
         out_dirs = [self.dirs[d] for d in dlive]
         out_dentry = array('i', [(emap[de[d]] if de[d] >= 0 else -1) for d in dlive])
@@ -798,7 +799,7 @@ class Index(object):
                 return
             nd = len(self.dirs)
             parent = self.parent
-            children = [[] for _ in range(nd)]
+            children = [array('I') for _ in range(nd)]
             for i, p in enumerate(parent):
                 children[p].append(i)
             self.dir_children = children
@@ -1044,7 +1045,7 @@ class Engine(threading.Thread):
                     removed = []
                     for c in idx.dir_children[d]:
                         idx._remove_entry(c, removed)
-                    idx.dir_children[d] = []
+                    idx.dir_children[d] = array('I')
                     idx.dir_mtime[d] = -1.0
                     idx.version += 1
                 self._unwatch(removed)
@@ -1172,8 +1173,8 @@ class Engine(threading.Thread):
                 continue
             if mt != idx.dir_mtime[d]:
                 self._refresh(d)
-            if d % 5000 == 4999:
-                time.sleep(0.001)
+            if d % 128 == 127:
+                time.sleep(0.005)
 
     def _handle_events(self, events, dirty, touched):
         idx = self.index
@@ -1241,7 +1242,7 @@ class Engine(threading.Thread):
         self.sweep_scope = scope   # None=全部；'unwatched'=仅未监控目录下的
         self.sweep_iter = iter(range(len(self.index.names)))
 
-    def _sweep_step(self, budget=20000):
+    def _sweep_step(self, budget=256):
         if self.sweep_iter is None:
             return False
         idx = self.index
@@ -1250,7 +1251,12 @@ class Engine(threading.Thread):
         dir_wd = self.dir_wd
         batch = []
         done = True
-        for i in self.sweep_iter:
+        deadline = time.monotonic() + 0.01
+        scanned = 0
+        for i in islice(self.sweep_iter, 2048):
+            scanned += 1
+            if scanned == 2048:
+                done = False
             if kind[i] == KIND_DEAD:
                 continue
             d = par[i]
@@ -1264,7 +1270,7 @@ class Engine(threading.Thread):
                 batch.append((i, -1 if kind[i] == KIND_DIR else st.st_size, st.st_mtime))
             except OSError:
                 batch.append((i, 0, 0.0))
-            if len(batch) >= budget:
+            if len(batch) >= budget or time.monotonic() >= deadline:
                 done = False
                 break
         if batch:
@@ -1285,21 +1291,20 @@ class Engine(threading.Thread):
         idx.ensure_lnames()
         n = len(idx.names)
         ln, kind = idx.lnames, idx.kind
-        live = [i for i in range(n) if kind[i] != KIND_DEAD]
+        live = array('I', (i for i in range(n) if kind[i] != KIND_DEAD))
         key = ln.__getitem__
         chunks = []
         CH = 40000
         for s in range(0, len(live), CH):
-            c = live[s:s + CH]
-            c.sort(key=key)
-            chunks.append(c)
+            c = sorted(live[s:s + CH], key=key)
+            chunks.append(array('I', c))
             time.sleep(0)
         if len(chunks) > 1:
-            order = list(heapq.merge(*chunks, key=key))
+            order = array('I', heapq.merge(*chunks, key=key))
         else:
             order = chunks[0] if chunks else []
         idx.name_order = (order, n)
-        self.order_version = idx.version
+        self.order_version = idx.struct_version
 
     def _save(self):
         try:
@@ -1366,7 +1371,7 @@ class Engine(threading.Thread):
             if now - last_sweep >= self.SWEEP_INTERVAL and self.sweep_iter is None:
                 last_sweep = now
                 self._start_sweep('unwatched' if self.ino is not None else None)
-            if (self.index.version != self.order_version and now - last_change > 2
+            if (self.index.struct_version != self.order_version and now - last_change > 2
                     and now - getattr(self, '_last_order', 0) >= self.ORDER_DELAY):
                 self._last_order = now
                 self._compute_order()
@@ -1884,8 +1889,8 @@ class EngineWin(Engine):
                 continue
             if mt != idx.dir_mtime[d]:
                 self._refresh(d)
-            if d % 5000 == 4999:
-                time.sleep(0.001)
+            if d % 128 == 127:
+                time.sleep(0.005)
 
     def _nearest_dir(self, path):
         """事件所在目录尚未建索引（新建的子树）时，向上找最近的已索引祖先；途经排除目录则忽略。"""
@@ -2312,7 +2317,7 @@ class Searcher(object):
             res = self._all()
         elif res is cand:
             res = list(res)
-        self.prev = (q.text, opts, idx.version, extra_key, res)
+        self.prev = (q.text, opts, idx.version, extra_key, array('I', res))
         return res
 
     def _all(self):
@@ -2434,6 +2439,78 @@ class Searcher(object):
 # ----------------------------------------------------------------------------
 #  Windows 系统集成（无 Qt 依赖的部分，便于单元测试）
 # ----------------------------------------------------------------------------
+def sort_search_results(idx, searcher, res, col, desc):
+    """Caller holds index.lock; no Qt objects are touched by the search worker."""
+    unsorted = False
+    if col in (0, 1):
+        idx.ensure_lnames()
+    if col == 0:
+        ln = idx.lnames
+        no = idx.name_order
+        if len(res) > 120000 and no is not None:
+            order, n0 = no
+            mask = bytearray(len(ln))
+            for i in res:
+                mask[i] = 1
+            out = [i for i in order if i < len(mask) and mask[i]]
+            extra = [i for i in res if i >= n0]
+            if extra:
+                extra.sort(key=ln.__getitem__)
+                out = list(heapq.merge(out, extra, key=ln.__getitem__))
+            res = out
+        elif len(res) > 400000:
+            unsorted = True
+        else:
+            res.sort(key=ln.__getitem__)
+    elif col == 1:
+        # 两趟稳定排序（先名称、再目录序号），等价于按 (目录, 名称) 排序，但避免百万个元组键
+        dp = idx.dir_prefixes(True)
+        par, ln = idx.parent, idx.lnames
+        key = (idx.dirs_version, 'drank')
+        drank = getattr(searcher, '_drank', None)
+        if drank is None or drank[0] != key:
+            rank = array('i', [0]) * len(dp)
+            for r, d in enumerate(sorted(range(len(dp)), key=dp.__getitem__)):
+                rank[d] = r
+            drank = searcher._drank = (key, rank)
+        rank = drank[1]
+        res.sort(key=ln.__getitem__)
+        res.sort(key=lambda i: rank[par[i]])
+    else:
+        searcher.ensure_stats(res)
+        arr = idx.size if col == 2 else idx.mtime
+        res.sort(key=arr.__getitem__)
+    if desc:
+        res.reverse()
+    return res, unsorted
+
+
+class SearchTask(threading.Thread):
+    """One in-flight search per window; the UI retains only the latest pending request."""
+    def __init__(self, index, searcher, query, extra, col, desc):
+        threading.Thread.__init__(self, name='qianxun-search', daemon=True)
+        self.index, self.searcher = index, searcher
+        self.query, self.extra, self.col, self.desc = query, extra, col, desc
+        self.done = threading.Event()
+        self.result = None
+        self.error = None
+
+    def run(self):
+        started = time.monotonic()
+        try:
+            with self.index.lock:
+                idx = self.index
+                self.searcher.case = self.query.case
+                rows = self.searcher.run(self.query, self.extra)
+                rows, unsorted = sort_search_results(idx, self.searcher, rows, self.col, self.desc)
+                self.result = (array('I', rows), idx.version, idx.struct_version, idx.gen,
+                               unsorted, (time.monotonic() - started) * 1000)
+        except Exception:
+            self.error = traceback.format_exc()
+        finally:
+            self.done.set()
+
+
 def server_name():
     """单实例本地套接字名。Linux 沿用 qianxun-<uid>；Windows 没有 getuid，用用户名的安全化形式 + 散列。"""
     if hasattr(os, 'getuid'):
@@ -3344,10 +3421,13 @@ if HAVE_QT:
             return ic
 
     class ResultModel(QAbstractTableModel):
+        PAGE_SIZE = 2000
+
         def __init__(self, index, parent=None):
             QAbstractTableModel.__init__(self, parent)
             self.index_ = index
             self.rows = []
+            self.loaded_rows = 0
             self.icons = IconCache()
             self.fresh = {}
             self.sorter = None
@@ -3355,13 +3435,28 @@ if HAVE_QT:
 
         def set_rows(self, rows, gen=None):
             self.beginResetModel()
-            self.rows = rows
+            self.rows = array('I', rows)
+            self.loaded_rows = min(len(self.rows), self.PAGE_SIZE)
             self.gen = self.index_.gen if gen is None else gen
             self.fresh = {}
             self.endResetModel()
 
         def rowCount(self, parent=QModelIndex()):
-            return 0 if parent.isValid() else len(self.rows)
+            return 0 if parent.isValid() else self.loaded_rows
+
+        def canFetchMore(self, parent=QModelIndex()):
+            return not parent.isValid() and self.loaded_rows < len(self.rows)
+
+        def fetchMore(self, parent=QModelIndex()):
+            if not parent.isValid():
+                self.load_through(self.loaded_rows + self.PAGE_SIZE)
+
+        def load_through(self, count):
+            count = min(count, len(self.rows))
+            if count > self.loaded_rows:
+                self.beginInsertRows(QModelIndex(), self.loaded_rows, count - 1)
+                self.loaded_rows = count
+                self.endInsertRows()
 
         def columnCount(self, parent=QModelIndex()):
             return 0 if parent.isValid() else 4
@@ -3398,8 +3493,12 @@ if HAVE_QT:
             if not mi.isValid():
                 return None
             # 引擎线程逐个数组追加条目，不持锁读取会看到长度不一致的数组（IndexError，PyQt5 下直接 abort）
-            with self.index_.lock:
+            if not self.index_.lock.acquire(blocking=False):
+                return None
+            try:
                 return self._data(mi, role)
+            finally:
+                self.index_.lock.release()
 
         def _data(self, mi, role):
             i = self.entry(mi.row())
@@ -3549,6 +3648,9 @@ if HAVE_QT:
             self.setIconSize(QSize(18, 18))
 
         def keyPressEvent(self, ev):
+            # Paging must not turn explicit Select All / Ctrl+End into partial operations.
+            if ev.matches(QKeySequence.SelectAll) or (ev.key() == Qt.Key_End and ev.modifiers() & Qt.ControlModifier):
+                self.win.model.load_through(len(self.win.model.rows))
             k = ev.key()
             mod = ev.modifiers()
             if k in (Qt.Key_Return, Qt.Key_Enter):
@@ -3729,6 +3831,9 @@ if HAVE_QT:
             self.index = index
             self.engine = engine
             self.searcher = Searcher(index)
+            self._search_task = None
+            self._search_pending = None
+            self._search_serial = 0
             self.quitting = False
             self.hotkey = None
             self.setWindowTitle('%s - 文件秒搜' % APP_NAME)
@@ -3805,6 +3910,9 @@ if HAVE_QT:
             self.poll.setInterval(200)
             self.poll.timeout.connect(self.on_poll)
             self.poll.start()
+            self.search_poll = QTimer(self)
+            self.search_poll.setInterval(20)
+            self.search_poll.timeout.connect(self._finish_search)
             self.last_version = -1
             self.last_struct = -1
             self.stat_query = False
@@ -3967,22 +4075,43 @@ if HAVE_QT:
 
         def do_search(self, keep_view=False):
             q, extra = self.build_query()
-            self.searcher.case = self.cfg['case']
-            t0 = time.time()
-            busy = False
-            with self.index.lock:
-                ver = self.index.version
-                sver = self.index.struct_version
-                gen = self.index.gen
-                res = self.searcher.run(q, extra)
-                if len(res) > 300000 or self.sort_col in (1, 2, 3) and len(res) > 50000:
-                    busy = True
-                    QApplication.setOverrideCursor(Qt.WaitCursor)
-                try:
-                    res = self._sorted(res)
-                finally:
-                    if busy:
-                        QApplication.restoreOverrideCursor()
+            self._search_serial += 1
+            self._search_pending = (self._search_serial, q, extra, self.sort_col,
+                                    self.sort_desc, keep_view)
+            self.lbl_count.setText('正在搜索…')
+            self._start_search()
+
+        def _start_search(self):
+            if self._search_task is not None or self._search_pending is None or self.quitting:
+                return
+            request = self._search_pending
+            self._search_pending = None
+            serial, q, extra, col, desc, keep_view = request
+            task = SearchTask(self.index, self.searcher, q, extra, col, desc)
+            self._search_task = (request, task)
+            task.start()
+            self.search_poll.start()
+
+        def _finish_search(self):
+            if self._search_task is None:
+                return
+            request, task = self._search_task
+            if not task.done.is_set():
+                return
+            self._search_task = None
+            self.search_poll.stop()
+            serial, q, extra, col, desc, keep_view = request
+            if serial != self._search_serial:
+                self._start_search()
+                return
+            if task.error:
+                log('search failed:\n' + task.error)
+                self.lbl_count.setText('搜索失败，请重试')
+                return
+            res, ver, sver, gen, self.rows_unsorted, elapsed_ms = task.result
+            if gen != self.index.gen:
+                self.do_search()
+                return
             self.last_version = ver
             self.last_struct = sver
             # 结果是否依赖大小/时间（size:、dm: 或按大小/时间排序）
@@ -4006,17 +4135,18 @@ if HAVE_QT:
                     except ValueError:
                         r = -1
                     if r >= 0:
+                        self.model.load_through(r + 1)
                         self.view.setCurrentIndex(self.model.index(r, 0))
             else:
                 self.view.scrollToTop()
-            self.search_ms = (time.time() - t0) * 1000
+            self.search_ms = elapsed_ms
             if q.error:
                 self.lbl_count.setText('语法错误：%s' % q.error)
             else:
                 self.update_count()
 
         def update_count(self):
-            n = self.model.rowCount()
+            n = len(self.model.rows)
             s = '{:,} 个对象'.format(n)
             sel = len(self.view.selectionModel().selectedRows()) if n else 0
             if sel > 1:
@@ -4026,50 +4156,9 @@ if HAVE_QT:
             self.lbl_count.setText(s)
 
         def _sorted(self, res):
-            idx = self.index
-            col, desc = self.sort_col, self.sort_desc
-            if col in (0, 1):
-                idx.ensure_lnames()
-            self.rows_unsorted = False
-            if col == 0:
-                ln = idx.lnames
-                no = idx.name_order
-                if len(res) > 120000 and no is not None:
-                    order, n0 = no
-                    mask = bytearray(len(ln))
-                    for i in res:
-                        mask[i] = 1
-                    out = [i for i in order if i < len(mask) and mask[i]]
-                    extra = [i for i in res if i >= n0]
-                    if extra:
-                        extra.sort(key=ln.__getitem__)
-                        out = list(heapq.merge(out, extra, key=ln.__getitem__))
-                    res = out
-                elif len(res) > 400000:
-                    self.rows_unsorted = True
-                else:
-                    res.sort(key=ln.__getitem__)
-            elif col == 1:
-                # 两趟稳定排序（先名称、再目录序号），等价于按 (目录, 名称) 排序，但避免百万个元组键
-                dp = idx.dir_prefixes(True)
-                par, ln = idx.parent, idx.lnames
-                key = (idx.dirs_version, 'drank')
-                drank = getattr(self, '_drank', None)
-                if drank is None or drank[0] != key:
-                    rank = array('i', [0]) * len(dp)
-                    for r, d in enumerate(sorted(range(len(dp)), key=dp.__getitem__)):
-                        rank[d] = r
-                    drank = self._drank = (key, rank)
-                rank = drank[1]
-                res.sort(key=ln.__getitem__)
-                res.sort(key=lambda i: rank[par[i]])
-            else:
-                self.searcher.ensure_stats(res)
-                arr = idx.size if col == 2 else idx.mtime
-                res.sort(key=arr.__getitem__)
-            if desc:
-                res.reverse()
-            return res
+            rows, self.rows_unsorted = sort_search_results(
+                self.index, self.searcher, res, self.sort_col, self.sort_desc)
+            return rows
 
         def on_sort_changed(self, col, order):
             self.sort_col = col
@@ -4080,6 +4169,7 @@ if HAVE_QT:
             pass   # 排序由 sortIndicatorChanged 统一处理
 
         def on_poll(self):
+            self._finish_search()
             st = self.engine.status
             state = st.get('state')
             idx = self.index
@@ -4098,7 +4188,7 @@ if HAVE_QT:
                 text = st.get('msg') or '…'
             if self.lbl_state.text() != text:
                 self.lbl_state.setText(text)
-            if not self.isVisible():
+            if not self.isVisible() or self._search_task is not None:
                 return
             if idx.gen != self.model.gen:
                 # 索引整体被替换（重建/加载），旧结果行已作废，立即重搜
@@ -4116,6 +4206,8 @@ if HAVE_QT:
 
         # ---- 选中项与操作 ----
         def selected_entries(self):
+            if self._search_task is not None:
+                return []
             rows = sorted(set(m.row() for m in self.view.selectionModel().selectedRows()))
             if not rows and self.view.currentIndex().isValid():
                 rows = [self.view.currentIndex().row()]
@@ -4128,6 +4220,8 @@ if HAVE_QT:
             return out
 
         def selected_paths(self):
+            if self._search_task is not None:
+                return []
             with self.index.lock:
                 return [p for p in (self.index.fullpath(i) for i in self.selected_entries()) if p]
 
