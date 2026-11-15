@@ -73,7 +73,9 @@ jobs:
           timeout 600 python test_search.py | tee ../../search.log
           grep -q "TOTAL FAIL 0" ../../search.log
       - name: 内存结构与补扫节流测试
-        run: python tests/qa/test_resources.py
+        run: |
+          python tests/qa/test_resources.py
+          python tests/win/test_taskbar_identity.py
       - name: 安装界面测试依赖
         run: pip install PyQt5==5.15.11 PySide6_Essentials==6.8.0.2
       - name: 后台搜索与按需显示测试
@@ -91,6 +93,16 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q mingw-w64 g++-mingw-w64-x86-64-win32 g++-mingw-w64-i686-win32
       - name: 编译原生版 x64／x86
         run: bash native/build.sh
+      - name: 编译带应用身份的 Windows 启动器
+        run: |
+          mkdir -p _work/launcher
+          cd build/windows/launcher
+          x86_64-w64-mingw32-windres -c 65001 -O coff launcher.rc -o ../../../_work/launcher/res.o
+          x86_64-w64-mingw32-gcc -municode -mwindows -O2 -s -Wall -static launcher.c ../../../_work/launcher/res.o -lole32 -luuid -lshell32 -o ../../../_work/launcher/QianXun.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-launcher
+          path: _work/launcher/QianXun.exe
       - name: 核查导入表（须兼容 Windows 7）
         run: |
           for a in x64 x86; do

@@ -142,3 +142,8 @@ bash tests/native_diff/run_diff.sh       # 原生版 578 条差分；live_test.p
 4. 版本号按第 7 节各处同步，`CHANGELOG.md` 有对应条目。
 5. 改动 Linux 行为的，改前改后各跑一遍 `sh tests/run_regression.sh` 并对比结果；只改 Windows 时 Linux 结果必须不变。
 6. 不引入任何联网依赖（运行时不得访问网络、不得依赖在线服务或在线安装），新增运行库须内嵌并写进 `docs/BUILD_RUNTIMES.md`。
+
+
+## 9. 桌面图标与任务栏固定（用户长期要求）
+
+遵守 `.cursor/rules/desktop-app-identity.mdc`。所有软件的发布入口、运行窗口、固定项与重新启动必须显示产品身份，不能露出 Python／pythonw 等宿主图标。Windows 解释器应用必须同时设置窗口级 AppID 和 Relaunch 命令／显示名／图标；千寻统一使用 `QianXun.FileSearch`。快捷方式须同 ID，并支持旧快捷方式迁移。开发运行没有持久产品入口时禁用固定。不能把属性读回测试当作真实固定／重启验收；未测试场景须明确说明。

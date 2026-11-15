@@ -2688,13 +2688,126 @@ def win_recycle(path):
 
 
 def win_set_app_id(app_id='QianXun.FileSearch'):
-    """任务栏按千寻（而不是 Python）分组并显示千寻图标。"""
+    """设置进程分组；固定图标与重新启动入口还必须设置窗口属性。"""
     try:
         f = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
         f.argtypes = [ctypes.c_wchar_p]
         f(app_id)
     except Exception:
         pass
+
+
+
+WIN_APP_ID = 'QianXun.FileSearch'
+TASKBAR_PROPERTY_IDS = (2, 3, 4, 5, 9)  # relaunch, icon, name, AppID, prevent pinning
+
+
+def win_taskbar_identity(env=None, script=None, exists=os.path.isfile):
+    """Use the persistent product launcher, never the interpreter or an extracted runtime."""
+    import ntpath
+    env = os.environ if env is None else env
+    script = script or os.path.abspath(__file__)
+    home = ntpath.dirname(ntpath.dirname(script))
+    candidates = [env.get('QIANXUN_LAUNCHER'),
+                  ntpath.join(ntpath.dirname(home), 'QianXun.exe'),
+                  ntpath.join(home, 'QianXun.exe')]
+    launcher = next((p for p in candidates if p and ntpath.isabs(p) and
+                     ntpath.basename(p).lower() in ('qianxun.exe', 'qianxun-portable.exe')
+                     and exists(p)), None)
+    if launcher is None:
+        # A source-only developer session has no durable branded entry to pin.
+        return {2: None, 3: None, 4: None, 5: WIN_APP_ID, 9: True}
+    return {2: subprocess.list2cmdline([launcher]), 3: launcher + ',0',
+            4: APP_NAME, 5: WIN_APP_ID, 9: False}
+
+
+def _win_taskbar_store(hwnd, updates=None):
+    """Read/write the window IPropertyStore. No third-party COM package is required."""
+    import uuid
+    from ctypes import wintypes
+
+    class GUID(ctypes.Structure):
+        _fields_ = [('data', ctypes.c_ubyte * 16)]
+
+    class PROPERTYKEY(ctypes.Structure):
+        _fields_ = [('fmtid', GUID), ('pid', wintypes.DWORD)]
+
+    class VALUE(ctypes.Union):
+        _fields_ = [('text', ctypes.c_wchar_p), ('boolean', ctypes.c_short),
+                    ('storage', ctypes.c_byte * (16 if ctypes.sizeof(ctypes.c_void_p) == 8 else 8))]
+
+    class PROPVARIANT(ctypes.Structure):
+        _fields_ = [('vt', ctypes.c_ushort), ('reserved', ctypes.c_ushort * 3), ('value', VALUE)]
+
+    def guid(text):
+        return GUID.from_buffer_copy(uuid.UUID(text).bytes_le)
+
+    def check(hr):
+        if hr < 0:
+            raise OSError('Taskbar property HRESULT 0x%08x' % (hr & 0xffffffff))
+
+    ole = ctypes.WinDLL('ole32')
+    ole.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    ole.CoInitializeEx.restype = ctypes.c_long
+    ole.CoUninitialize.argtypes = []
+    ole.CoUninitialize.restype = None
+    ole.PropVariantClear.argtypes = [ctypes.POINTER(PROPVARIANT)]
+    ole.PropVariantClear.restype = ctypes.c_long
+    initialized = ole.CoInitializeEx(None, 2)
+    if initialized < 0 and initialized != -2147417850:  # RPC_E_CHANGED_MODE: existing apartment
+        check(initialized)
+    store = ctypes.c_void_p()
+    try:
+        get_store = ctypes.WinDLL('shell32').SHGetPropertyStoreForWindow
+        get_store.argtypes = [wintypes.HWND, ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p)]
+        get_store.restype = ctypes.c_long
+        iid = guid('886d8eeb-8cf2-4446-8d02-cdba1dbdcf99')
+        check(get_store(hwnd, ctypes.byref(iid), ctypes.byref(store)))
+        vtable = ctypes.cast(store, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        release = ctypes.WINFUNCTYPE(wintypes.ULONG, ctypes.c_void_p)(vtable[2])
+        get_value = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p,
+                                      ctypes.POINTER(PROPERTYKEY), ctypes.POINTER(PROPVARIANT))(vtable[5])
+        set_value = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p,
+                                      ctypes.POINTER(PROPERTYKEY), ctypes.POINTER(PROPVARIANT))(vtable[6])
+        fmtid = guid('9f4c2855-9f79-4b39-a8d0-e1d42de1d5f3')
+        try:
+            if updates is not None:
+                # Set relaunch information BEFORE the AppID, per the Shell contract.
+                for pid in (2, 3, 4, 9, 5):
+                    if pid not in updates:
+                        continue
+                    key, value = PROPERTYKEY(fmtid, pid), PROPVARIANT()
+                    text = updates[pid]
+                    if isinstance(text, bool):
+                        value.vt, value.value.boolean = 11, -1 if text else 0  # VT_BOOL
+                    elif text is not None:
+                        value.vt, value.value.text = 31, text  # VT_LPWSTR; SetValue copies it
+                    check(set_value(store, ctypes.byref(key), ctypes.byref(value)))
+            result = {}
+            for pid in TASKBAR_PROPERTY_IDS:
+                key, value = PROPERTYKEY(fmtid, pid), PROPVARIANT()
+                check(get_value(store, ctypes.byref(key), ctypes.byref(value)))
+                try:
+                    result[pid] = (value.value.text if value.vt == 31 else
+                                   bool(value.value.boolean) if value.vt == 11 else None)
+                finally:
+                    ole.PropVariantClear(ctypes.byref(value))
+            return result
+        finally:
+            release(store)
+    finally:
+        if initialized >= 0:
+            ole.CoUninitialize()
+
+
+def win_set_taskbar_identity(hwnd, clear=False):
+    try:
+        updates = {pid: None for pid in TASKBAR_PROPERTY_IDS} if clear else win_taskbar_identity()
+        _win_taskbar_store(hwnd, updates)
+        return True
+    except Exception:
+        log('taskbar identity:\n' + traceback.format_exc())
+        return False
 
 
 _EXTRACT_DIR = re.compile(r'^rt-[0-9a-fA-F]{12}$')
@@ -4888,6 +5001,10 @@ def main():
     engine.start()
     win = MainWindow(cfg, index, engine, icon)
     win.server = server
+    if IS_WIN:
+        taskbar_hwnd = int(win.winId())
+        win_set_taskbar_identity(taskbar_hwnd)
+        app.aboutToQuit.connect(lambda: win_set_taskbar_identity(taskbar_hwnd, clear=True))
     if IS_WIN:
         try:
             engine.hwnd = int(win.winId())
