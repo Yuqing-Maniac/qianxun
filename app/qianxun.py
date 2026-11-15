@@ -37,7 +37,7 @@ from itertools import islice
 
 APP_NAME = '千寻'
 APP_ID = 'qianxun'
-VERSION = '1.2.3'
+VERSION = '1.2.4'
 
 # 平台：同一份源码同时支持 Linux（银河麒麟等）与 Windows 10/11
 IS_WIN = os.name == 'nt'

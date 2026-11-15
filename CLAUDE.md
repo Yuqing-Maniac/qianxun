@@ -125,7 +125,7 @@ bash tests/native_diff/run_diff.sh       # 原生版 578 条差分；live_test.p
 - 新增平台差异时，Linux 行为必须不变：先跑一遍 `tests/run_regression.sh` 作为基线，改完再跑一遍对比。
 
 ## 7. 版本号
-发版前以下各处必须一致（当前源码 1.2.3，正式完整包 1.2.2），并在 `CHANGELOG.md` 新增条目：
+发版前以下各处必须一致（当前源码 1.2.4，正式完整包 1.2.2），并在 `CHANGELOG.md` 新增条目：
 - `app/qianxun.py` 的 `VERSION`：程序“关于”与 `--version` 显示；**`build/linux/build_release.sh`（变量 `V`）与 `build/windows/build_win.sh`（变量 `VER`）用 sed 从这一行读取**，决定 deb 的 `Version:` 与 deb／tar.gz／zip／portable exe 的文件名，取不到即报错退出。
 - `native/src/app.h` 的 `QX_VERSION_W`：原生版“关于”与 `--version`。
 - `native/res/qianxun.rc`（FILEVERSION／PRODUCTVERSION 及两处字符串）与 `native/res/manifest.xml`：原生 exe 的文件属性。
@@ -147,3 +147,8 @@ bash tests/native_diff/run_diff.sh       # 原生版 578 条差分；live_test.p
 ## 9. 桌面图标与任务栏固定（用户长期要求）
 
 遵守 `.cursor/rules/desktop-app-identity.mdc`。所有软件的发布入口、运行窗口、固定项与重新启动必须显示产品身份，不能露出 Python／pythonw 等宿主图标。Windows 解释器应用必须同时设置窗口级 AppID 和 Relaunch 命令／显示名／图标；千寻统一使用 `QianXun.FileSearch`。快捷方式须同 ID，并支持旧快捷方式迁移。开发运行没有持久产品入口时禁用固定。不能把属性读回测试当作真实固定／重启验收；未测试场景须明确说明。
+
+
+## 10. 补丁版本与升级验收
+
+交付过的版本号不得复用于内容不同的新补丁；候选版也适用。新包的目标版本必须严格高于已交付版本，并同步程序、打包元数据及相关资源版本。不能只修改 ZIP 文件名。交付前使用目标用户实际旧版升级器，在隔离目录中验证旧版→新版为 applied、重复安装为 already、降级被拒绝。不得为了测试预先改动用户安装目录的版本号，导致用户真正安装时又被判断为同版本。覆盖包与菜单增量包必须明确区分。
