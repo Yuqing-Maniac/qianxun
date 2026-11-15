@@ -37,7 +37,7 @@ from itertools import islice
 
 APP_NAME = '千寻'
 APP_ID = 'qianxun'
-VERSION = '1.2.4'
+VERSION = '1.2.5'
 
 # 平台：同一份源码同时支持 Linux（银河麒麟等）与 Windows 10/11
 IS_WIN = os.name == 'nt'
@@ -472,6 +472,57 @@ class Index(object):
             self.lnames[e] = ''
             self.live -= 1
             self.struct_version += 1
+
+    def directory_summary(self):
+        """Directory structure changes invalidate counts; file/stat changes do not."""
+        key = (self.gen, self.dirs_version)
+        cached = getattr(self, '_directory_summary', None)
+        if cached is None or cached[0] != key:
+            count = 0
+            roots = []
+            for d, p in enumerate(self.dirs):
+                if p is not None:
+                    count += 1
+                    if self.dir_entry[d] < 0:
+                        roots.append(d)
+            cached = (key, count, tuple(roots))
+            self._directory_summary = cached
+        return cached[1:]
+
+    def compact_entries(self):
+        """Reclaim dead entry slots atomically; directory IDs stay valid for watchers.
+
+        Engine calls this between event batches, with no attribute sweep active.
+        Build all replacements before publishing, so allocation failure is harmless.
+        """
+        with self.lock:
+            if len(self.names) == self.live:
+                return 0
+            old_n = len(self.names)
+            live = array('I', (i for i, k in enumerate(self.kind) if k != KIND_DEAD))
+            mapping = array('i', [-1]) * old_n
+            for new, old in enumerate(live):
+                mapping[old] = new
+            names = [self.names[i] for i in live]
+            lnames = None if self.lnames is None else [self.lnames[i] for i in live]
+            parent = array('i', (self.parent[i] for i in live))
+            kind = bytearray(self.kind[i] for i in live)
+            size = array('q', (self.size[i] for i in live))
+            mtime = array('d', (self.mtime[i] for i in live))
+            children = [array('I') for _ in self.dirs]
+            for i, d in enumerate(parent):
+                children[d].append(i)
+            entries = array('i', (mapping[e] if e >= 0 else -1 for e in self.dir_entry))
+            entry_dir = {mapping[e]: d for e, d in self.entry_dir.items()}
+            self.names, self.lnames = names, lnames
+            self.parent, self.kind, self.size, self.mtime = parent, kind, size, mtime
+            self.dir_children, self.dir_entry, self.entry_dir = children, entries, entry_dir
+            self.name_order = None
+            self._dp_cache = {}
+            self.gen += 1
+            self.version += 1
+            self.struct_version += 1
+            return old_n - self.live
 
     def fullpath(self, i):
         d = self.dirs[self.parent[i]]
@@ -911,6 +962,7 @@ class Engine(threading.Thread):
     SWEEP_INTERVAL = 1800      # 全量刷新大小/时间
     SAVE_INTERVAL = 1800
     ORDER_DELAY = 20
+    COMPACT_INTERVAL = 60
 
     def __init__(self, index, cfg):
         threading.Thread.__init__(self, name='qianxun-engine')
@@ -1056,7 +1108,7 @@ class Engine(threading.Thread):
 
     def _set_ready(self):
         idx = self.index
-        nd = sum(1 for d in idx.dirs if d is not None)
+        nd, _roots = idx.directory_summary()
         self.status.update(state='ready', dirs=nd, watched=len(self.dir_wd), msg='')
 
     def _full_scan(self):
@@ -1314,11 +1366,26 @@ class Engine(threading.Thread):
         except Exception:
             log('save failed:\n' + traceback.format_exc())
 
+    def _maybe_compact(self):
+        idx = self.index
+        dead = len(idx.names) - idx.live
+        # Avoid copying a mostly-live index, and leave small churn alone.
+        if dead < 65536 or dead * 4 < len(idx.names) or self.sweep_iter is not None:
+            return 0
+        try:
+            reclaimed = idx.compact_entries()
+        except MemoryError:
+            log('index compaction deferred: insufficient memory')
+            return 0
+        log('index compacted: reclaimed %d entry slots' % reclaimed)
+        return reclaimed
+
     def _loop(self):
         dirty, touched = set(), {}
         first_event = 0.0
         last_poll = last_sweep = last_save = last_mounts = time.time()
         last_change = 0.0
+        last_compact = time.monotonic()
         while True:
             # 命令
             try:
@@ -1371,6 +1438,10 @@ class Engine(threading.Thread):
             if now - last_sweep >= self.SWEEP_INTERVAL and self.sweep_iter is None:
                 last_sweep = now
                 self._start_sweep('unwatched' if self.ino is not None else None)
+            if (not dirty and not touched and now - last_change > 2
+                    and time.monotonic() - last_compact >= self.COMPACT_INTERVAL):
+                last_compact = time.monotonic()
+                self._maybe_compact()
             if (self.index.struct_version != self.order_version and now - last_change > 2
                     and now - getattr(self, '_last_order', 0) >= self.ORDER_DELAY):
                 self._last_order = now
@@ -1707,7 +1778,7 @@ class EngineWin(Engine):
 
     def _root_dids(self):
         idx = self.index
-        return [d for d, p in enumerate(idx.dirs) if p is not None and idx.dir_entry[d] < 0]
+        return idx.directory_summary()[1]
 
     def _unwatched_prefixes(self):
         idx = self.index
@@ -1852,16 +1923,20 @@ class EngineWin(Engine):
 
     def _set_ready(self):
         idx = self.index
-        live = [p for p in idx.dirs if p is not None]
-        nd = len(live)
-        roots = self._root_dids()
+        nd, roots = idx.directory_summary()
         if self.ino is None or not self.dir_wd:
             w = 0
         elif all(d in self.dir_wd for d in roots):
             w = nd
         else:
-            prefs = [self._prefix(idx.dirs[d]) for d in self.dir_wd if idx.dirs[d] is not None]
-            w = sum(1 for p in live if self._under(p, prefs))
+            key = (idx.gen, idx.dirs_version, frozenset(self.dir_wd))
+            cached = getattr(self, '_coverage_cache', None)
+            if cached is None or cached[0] != key:
+                prefs = [self._prefix(idx.dirs[d]) for d in self.dir_wd if idx.dirs[d] is not None]
+                w = sum(1 for p in idx.dirs if p is not None and self._under(p, prefs))
+                cached = (key, w)
+                self._coverage_cache = cached
+            w = cached[1]
         self.status.update(state='ready', dirs=nd, watched=w, msg='')
 
     def _catch_up(self, only_unwatched, roots=None):
@@ -4396,11 +4471,11 @@ if HAVE_QT:
                 QApplication.clipboard().setText('\n'.join(disp(os.path.dirname(p)) for p in ps))
 
         def act_rename(self):
-            ents = self.selected_entries()
-            if len(ents) != 1:
-                return
-            i = ents[0]
             with self.index.lock:
+                ents = self.selected_entries()
+                if len(ents) != 1:
+                    return
+                i = ents[0]
                 old = self.index.fullpath(i)
                 name = self.index.names[i]
             if not old:

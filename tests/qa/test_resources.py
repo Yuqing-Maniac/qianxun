@@ -6,6 +6,46 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'app'))
 import qianxun as q
 
 class Resources(unittest.TestCase):
+ def test_directory_statistics_cache(self):
+  idx=self.make_index(5);eng=q.EngineWin(idx,q.DEFAULT_CONFIG)
+  count,roots=idx.directory_summary();self.assertEqual(count,1)
+  cached=idx._directory_summary
+  idx._add_entry(0,'another',False);idx.version+=1
+  self.assertEqual(idx.directory_summary(),(1,roots));self.assertIs(cached,idx._directory_summary)
+  e=idx._add_entry(0,'child',True);d=idx._new_dir(q.join_path(idx.dirs[0],'child'),e)
+  eng.ino=object();eng.dir_wd={0:0};eng._set_ready()
+  self.assertEqual(eng.status['dirs'],2);self.assertEqual(eng.status['watched'],2)
+  idx._remove_entry(e,[]);eng._set_ready();self.assertEqual(eng.status['dirs'],1)
+  eng.dir_wd={};eng._set_ready();self.assertEqual(eng.status['watched'],0)
+  idx.clear();self.assertEqual(idx.directory_summary(),(0,()))
+
+ def test_compaction_preserves_paths_stats_and_search(self):
+  idx=self.make_index(100)
+  e=idx._add_entry(0,'child',True);d=idx._new_dir(q.join_path(idx.dirs[0],'child'),e)
+  idx._add_entry(d,'nested.txt',False,12,34)
+  for i in range(90):idx._remove_entry(i,[])
+  expected=[(idx.fullpath(i),idx.kind[i],idx.size[i],idx.mtime[i]) for i in range(len(idx.names)) if idx.kind[i] != q.KIND_DEAD]
+  search=q.Searcher(idx);search.run(q.Query('File'))
+  gen=idx.gen;dirs=idx.dirs;eng=q.Engine(idx,q.DEFAULT_CONFIG);eng._compute_order()
+  self.assertEqual(idx.compact_entries(),90);self.assertIs(idx.dirs,dirs)
+  self.assertEqual(idx.gen,gen+1);self.assertEqual(len(idx.names),idx.live)
+  self.assertEqual(expected,[(idx.fullpath(i),idx.kind[i],idx.size[i],idx.mtime[i]) for i in range(idx.live)])
+  self.assertEqual(idx.entry_dir[idx.dir_entry[d]],d)
+  self.assertEqual(sum(map(len,idx.dir_children)),idx.live)
+  self.assertEqual(len(search.run(q.Query('File0'))),10)
+  with tempfile.TemporaryDirectory() as td:
+   fn=os.path.join(td,'index');idx.save(fn,{'test':1});other=q.Index()
+   self.assertTrue(other.load(fn,{'test':1}));self.assertEqual(other.names,idx.names)
+  self.assertEqual(idx.compact_entries(),0)
+
+ def test_compaction_threshold_and_sweep_deferral(self):
+  idx=self.make_index(70000);eng=q.Engine(idx,q.DEFAULT_CONFIG)
+  for i in range(66000):idx._remove_entry(i,[])
+  eng.sweep_iter=iter(());self.assertEqual(eng._maybe_compact(),0)
+  eng.sweep_iter=None;self.assertEqual(eng._maybe_compact(),66000)
+  self.assertEqual(len(idx.names),4000)
+  self.assertEqual(eng._maybe_compact(),0)
+
  def make_index(self, n=150000):
   idx=q.Index(); d=idx._new_dir(os.path.abspath('sample'),-1)
   for i in range(n): idx._add_entry(d, 'File%07d.txt' % (n-i),False,i,float(i))

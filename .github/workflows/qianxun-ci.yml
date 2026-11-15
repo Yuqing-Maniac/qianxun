@@ -75,6 +75,7 @@ jobs:
       - name: 内存结构与补扫节流测试
         run: |
           python tests/qa/test_resources.py
+          python tests/qa/test_reclaim_live.py
           python tests/win/test_taskbar_identity.py
       - name: 安装界面测试依赖
         run: pip install PyQt5==5.15.11 PySide6_Essentials==6.8.0.2

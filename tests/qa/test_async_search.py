@@ -57,6 +57,16 @@ assert win.model.canFetchMore()
 before=win.model.rowCount();win.model.fetchMore();assert win.model.rowCount()>before
 win.model.load_through(5000);assert win.model.rowCount()==5000
 assert not win.model.canFetchMore()
+# Compaction invalidates displayed IDs before any file action can resolve them.
+win.view.setCurrentIndex(win.model.index(0,0))
+with idx.lock:
+ idx._remove_entry(0,[])
+ idx.compact_entries()
+assert win.selected_paths()==[]
+assert win.model.entry(0)==-1
+win.do_search(keep_view=False);pump_until(idle)
+assert len(win.model.rows)==5000
+assert win.model.gen==idx.gen
 win.quitting=True;win.close();timer.stop()
 print('PASS responsive GUI, latest request wins, stale generation rejected')
 
