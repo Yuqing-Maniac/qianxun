@@ -125,7 +125,7 @@ bash tests/native_diff/run_diff.sh       # 原生版 578 条差分；live_test.p
 - 新增平台差异时，Linux 行为必须不变：先跑一遍 `tests/run_regression.sh` 作为基线，改完再跑一遍对比。
 
 ## 7. 版本号
-发版前以下各处必须一致（当前源码 1.2.5，正式完整包 1.2.2），并在 `CHANGELOG.md` 新增条目：
+发版前以下各处必须一致（当前源码及正式完整包 1.2.5），并在 `CHANGELOG.md` 新增条目：
 - `app/qianxun.py` 的 `VERSION`：程序“关于”与 `--version` 显示；**`build/linux/build_release.sh`（变量 `V`）与 `build/windows/build_win.sh`（变量 `VER`）用 sed 从这一行读取**，决定 deb 的 `Version:` 与 deb／tar.gz／zip／portable exe 的文件名，取不到即报错退出。
 - `native/src/app.h` 的 `QX_VERSION_W`：原生版“关于”与 `--version`。
 - `native/res/qianxun.rc`（FILEVERSION／PRODUCTVERSION 及两处字符串）与 `native/res/manifest.xml`：原生 exe 的文件属性。

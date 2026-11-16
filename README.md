@@ -2,7 +2,7 @@
 
 千寻是一款 Everything 式的文件名即时搜索工具：全盘文件名索引常驻内存，输入即出结果；新建、改名、删除约 1 秒内同步。全部离线运行，自带运行库，无需安装，无需管理员权限。
 
-当前源码为 **1.2.5 修复候选版**：压缩索引编号、后台搜索、结果按需显示、降低麒麟补扫负担。现有正式完整包仍为下文的 1.2.2。性能实测与限制见 [性能验证](docs/PERFORMANCE_1.2.3.md)。
+当前版本为 **1.2.5**：降低索引内存占用，后台搜索与结果按需显示，缓存后台目录统计，自动回收失效条目，并修复 Windows 任务栏身份。性能实测与限制见 [性能验证](docs/PERFORMANCE_1.2.3.md)。
 
 ## 一、功能
 
@@ -17,30 +17,34 @@
 
 | 平台 | 版本 | 技术路线 | 发布物 |
 |---|---|---|---|
-| 银河麒麟 V10（飞腾 aarch64） | 1.2.2 | Python 3.13＋PySide6（Qt 6.8）自带运行库 | `qianxun-1.2.2-kylin-aarch64.tar.gz` |
-| Windows 10／11（64 位） | 1.2.2 | Python 3.13＋PyQt5（Qt 5.15）＋C 启动器 | `qianxun-1.2.2-windows-x64.zip` |
+| 银河麒麟 V10（飞腾 aarch64） | 1.2.5 | Python 3.13＋PySide6（Qt 6.8）自带运行库 | `qianxun-1.2.5-kylin-aarch64.tar.gz` |
+| Windows 10／11（64 位） | 1.2.5 | Python 3.13＋PyQt5（Qt 5.15）＋C 启动器 | `qianxun-1.2.5-windows-x64.zip` |
 
-1.2.2 发布页只有上面两份便携包。麒麟 x86_64 与 Windows 7 的打包脚本还在 `build/linux/build_release.sh` 和 `build/windows/package_native.sh`，这次没有放上发布页。Windows 7 不能使用包内的 Python 3.13。
+1.2.5 发布页提供上面两份便携包，另附增量补丁、升级说明与校验文件。麒麟 x86_64 与 Windows 7 的打包脚本还在 `build/linux/build_release.sh` 和 `build/windows/package_native.sh`，这次没有放上发布页。Windows 7 不能使用包内的 Python 3.13。
 
 这次发布页上的 Windows 包是 Python 版，给 Windows 10／11 64 位用。原生版更快，也能在 Windows 7 上运行，打包脚本还在，这次没有放上发布页。
 
-正式发布页是 [千寻 1.2.2](https://github.com/Yuqing-Maniac/qianxun/releases/tag/qianxun-v1.2.2)。该页提供上表两份便携包和 `SHA256SUMS.txt`。页上没有 deb，也没有自解压 exe。下载后在校验文件所在目录执行 `sha256sum -c SHA256SUMS.txt`。
+正式发布页是 [千寻 1.2.5](https://github.com/Yuqing-Maniac/qianxun/releases/tag/qianxun-v1.2.5)。该页提供上表两份便携包、增量补丁、升级说明和 `SHA256SUMS.txt`。页上没有 deb，也没有自解压 exe。下载后在校验文件所在目录执行 `sha256sum -c SHA256SUMS.txt`。
 
 ## 三、安装与使用
 
 **麒麟／Linux**
-- 绿色版：先把压缩包复制到本机硬盘（不要在 U 盘里解压），`tar -xzf qianxun-1.2.2-kylin-aarch64.tar.gz`。解压后顶层是 `qianxun.sh` 和 `qianxun` 文件夹，双击或执行 `sh qianxun.sh`。第一次运行会在桌面建立快捷方式。文件夹里的 `sh check.sh` 可以自检。`qianxun/install.sh` 仍可安装到当前用户（加 `--autostart` 开机自启），`sudo ./install.sh --system` 安装到系统（`/opt/qianxun`）。`./uninstall.sh` 卸载（`--purge` 同时删除配置与缓存）。
+- 绿色版：先把压缩包复制到本机硬盘（不要在 U 盘里解压），`tar -xzf qianxun-1.2.5-kylin-aarch64.tar.gz`。解压后顶层是 `qianxun.sh` 和 `qianxun` 文件夹，双击或执行 `sh qianxun.sh`。第一次运行会在桌面建立快捷方式。文件夹里的 `sh check.sh` 可以自检。`qianxun/install.sh` 仍可安装到当前用户（加 `--autostart` 开机自启），`sudo ./install.sh --system` 安装到系统（`/opt/qianxun`）。`./uninstall.sh` 卸载（`--purge` 同时删除配置与缓存）。
 - 配置 `~/.config/qianxun/`，索引缓存 `~/.cache/qianxun/`。
 
 **Windows**
 - 解压后顶层是 `QianXun.exe` 和 `QianXun` 文件夹。双击旁边的 `QianXun.exe`。不要只把 exe 拷走。第一次运行会在桌面建立快捷方式，图标来自这个 exe。
-- Windows 10／11 用 `qianxun-1.2.2-windows-x64.zip`（Python 运行库在文件夹里）。Python 3.13 不能在 Windows 7 上运行。Windows 7 的原生打包脚本还在，这次发布页没有附带。
+- Windows 10／11 用 `qianxun-1.2.5-windows-x64.zip`（Python 运行库在文件夹里）。Python 3.13 不能在 Windows 7 上运行。Windows 7 的原生打包脚本还在，这次发布页没有附带。
 - 数据位于 `%LOCALAPPDATA%\QianXun\`；exe 同目录放一个空文件 `portable.txt` 即改为便携模式（数据存同目录 `data\`）。
 - 程序未做数字签名，从网上下载后首次运行如出现“Windows 已保护你的电脑”，点“更多信息 → 仍要运行”。
 
 各发布包内另附中文 `README.txt`（版式与本节一致）。
 
+
 ## 四、增量升级
+
+1.2.5 增量补丁仅替换 Python 主程序。Windows 1.2.3／1.2.4 和麒麟 1.2.2～1.2.4 可使用；Windows 1.2.2 的旧升级器有已知故障，请下载完整包。需要更新任务栏启动器时也请选择完整包。已经固定过 Python 图标的用户，请取消旧的千寻固定项，再从新版入口启动并重新固定。
+
 
 从 1.1.0 升到 1.2.0，以及换到 1.2.2 的入口布局，都只能换完整包。这次发布页上的完整包是麒麟 aarch64 的 tar.gz 和 Windows 10／11 的 zip。更换 Python、Qt、启动器或原生 exe，也只能换完整包。
 
