@@ -6,6 +6,7 @@
 #include <shellapi.h>
 #include <shlwapi.h>
 #include <shobjidl.h>
+#include <propsys.h>
 #include <unordered_map>
 #include <list>
 #include <vector>
@@ -331,6 +332,19 @@ bool create_desktop_shortcut(std::wstring& lnk) {
     sl->SetWorkingDirectory(exe_dir().c_str());
     sl->SetIconLocation(exe_path().c_str(), 0);
     sl->SetDescription(L"千寻 文件秒搜");
+    IPropertyStore* store = nullptr;
+    HRESULT identity_hr = E_NOINTERFACE;
+    if (SUCCEEDED(sl->QueryInterface(IID_IPropertyStore, (void**)&store))) {
+        const PROPERTYKEY appid = {{0x9f4c2855, 0x9f79, 0x4b39,
+            {0xa8, 0xd0, 0xe1, 0xd4, 0x2d, 0xe1, 0xd5, 0xf3}}, 5};
+        PROPVARIANT value = {};
+        value.vt = VT_LPWSTR;
+        value.pwszVal = const_cast<LPWSTR>(L"QianXun.FileSearch");
+        identity_hr = store->SetValue(appid, value);
+        if (SUCCEEDED(identity_hr)) identity_hr = store->Commit();
+        store->Release();
+    }
+    if (FAILED(identity_hr)) { sl->Release(); return false; }
     IPersistFile* pf = nullptr;
     bool ok = false;
     if (SUCCEEDED(sl->QueryInterface(IID_IPersistFile, (void**)&pf))) {

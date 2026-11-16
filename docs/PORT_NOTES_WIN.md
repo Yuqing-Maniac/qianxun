@@ -16,7 +16,7 @@
 | 8 | 图标 | Windows 下 `QFileIconProvider().icon(QFileInfo(真实路径))`：普通扩展名按首个真实文件缓存，`.exe/.lnk/.ico/.url/.scr/.cpl/.msc` 按路径 LRU 2000；文件夹统一图标。 |
 | 9 | 全局快捷键 | `RegisterHotKey(NULL, …, MOD_NOREPEAT)`，默认 Ctrl+Alt+F；`parse_hotkey()` 解析 Qt PortableText（纯函数）；`WinNativeFilter`（`QAbstractNativeEventFilter`）处理 `WM_HOTKEY` → `win.toggle()`；注册失败在状态栏提示；选项里可改键或关闭（`QKeySequenceEdit`）。 |
 | 10 | 自启／快捷方式 | 选项“登录 Windows 时自动启动（后台托盘）”写 `HKCU\…\Run\QianXun = "<启动器>" --hidden`（winreg，无需管理员）；每次启动若自启项指向旧路径则自动更新。菜单“创建桌面快捷方式” → `QFile.link(启动器, 桌面\千寻.lnk)`（桌面路径取 `QStandardPaths`，兼容 OneDrive 重定向）。 |
-| 11 | 任务栏 | 创建 QApplication 前 `SetCurrentProcessExplicitAppUserModelID("QianXun.FileSearch")`。 |
+| 11 | 任务栏 | 创建 QApplication 前设置进程 AppID；显示主窗口前设置窗口 AppID、RelaunchCommand、RelaunchDisplayNameResource、RelaunchIconResource，固定入口使用持久 QianXun.exe。桌面／开始菜单快捷方式使用同一 AppID。退出清理窗口属性。 |
 | 12 | 字体／DPI | 界面字体优先 Microsoft YaHei UI → Microsoft YaHei → 系统默认；`HighDpiScaleFactorRoundingPolicy.PassThrough`（125%／150% 不取整）。 |
 | 13 | 文案 | 帮助（路径语法示例、全局快捷键说明）、关于、选项对话框按平台分支；新增 `win/README_WIN.txt`（build_win.sh 自动转 UTF-8 BOM＋CRLF 放入发布物）。 |
 
@@ -65,3 +65,14 @@ QA：test_engine（18 场景）、test_search（含 3000 步属性测试，0 不
 - 测试：`/home/claude/build/tests/win/test_win_pure.py`、`test_win_search.py`、`test_engine_win.py`；Wine 端到端脚本与结果 `tests/win/wine/`（脚本假定复制到 `C:\qxport\`、测试树在 `C:\demo`）；回归入口 `/home/claude/build/tests/run_regression.sh`
 - 发布物：`dist/qianxun-1.0.0-windows-x64.zip`、`dist/QianXun-1.0.0-portable.exe`，以及重新打包的麒麟 tar.gz／zip／deb；`dist/SHA256SUMS.txt`
 - Windows 说明书：`win/README_WIN.txt`（已打进 zip 的 `QianXun/README.txt`）
+
+
+### 1.2.3 候选版任务栏固定修复
+
+原逻辑只设置进程 AppID 和 Qt 窗口图标；Windows 固定窗口时仍可能生成指向 pythonw.exe 的项目。现通过 SHGetPropertyStoreForWindow 补齐窗口属性，使用持久启动器作为重启命令和图标资源，优先使用启动器环境变量；失效时检查便携目录入口。没有可靠产品入口的源码运行禁用固定，避免创建解释器固定项。启动器和原生版快捷方式写入相同 AppID；已有桌面／开始菜单快捷方式可更新，用户删除的快捷方式不会在同一路径反复重建。
+
+已在 Windows 的 Python 3.14 和发布包 Python 3.13 上验证真实窗口属性的写入、读回、清理，以及中文／空格路径和目录迁移选择。实际任务栏固定、退出再启动的视觉验收仍须进行；这不是属性测试可以替代的。历史错误固定项可能需要取消固定后，从新版窗口重新固定，不清空用户其他固定项。
+
+微软接口说明：
+- https://learn.microsoft.com/en-us/windows/win32/properties/props-system-appusermodel-relaunchcommand
+- https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shgetpropertystoreforwindow

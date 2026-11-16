@@ -19,6 +19,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <shlobj.h>
+#include <propsys.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -104,21 +105,38 @@ static void write_marker(const wchar_t *path, const wchar_t *exe)
     CloseHandle(h);
 }
 
-static void save_link(const wchar_t *lnk, const wchar_t *exe, const wchar_t *work)
+static int save_link(const wchar_t *lnk, const wchar_t *exe, const wchar_t *work)
 {
     IShellLinkW *sl = NULL;
     HRESULT hr = CoCreateInstance(&CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (void **)&sl);
-    if (FAILED(hr) || !sl) return;
+    if (FAILED(hr) || !sl) return 0;
     sl->lpVtbl->SetPath(sl, exe);
     sl->lpVtbl->SetWorkingDirectory(sl, work);
     sl->lpVtbl->SetIconLocation(sl, exe, 0);
     sl->lpVtbl->SetDescription(sl, L"\u5343\u5bfb \u6587\u4ef6\u79d2\u641c");
+    IPropertyStore *store = NULL;
+    if (SUCCEEDED(sl->lpVtbl->QueryInterface(sl, &IID_IPropertyStore, (void **)&store)) && store) {
+        const PROPERTYKEY appid = {{0x9f4c2855, 0x9f79, 0x4b39,
+            {0xa8, 0xd0, 0xe1, 0xd4, 0x2d, 0xe1, 0xd5, 0xf3}}, 5};
+        PROPVARIANT value;
+        memset(&value, 0, sizeof value);
+        value.vt = VT_LPWSTR;
+        value.pwszVal = L"QianXun.FileSearch";
+        hr = store->lpVtbl->SetValue(store, &appid, &value);
+        if (SUCCEEDED(hr)) hr = store->lpVtbl->Commit(store);
+        store->lpVtbl->Release(store);
+    } else {
+        hr = E_NOINTERFACE;
+    }
+    if (FAILED(hr)) { sl->lpVtbl->Release(sl); return 0; }
     IPersistFile *pf = NULL;
+    int saved = 0;
     if (SUCCEEDED(sl->lpVtbl->QueryInterface(sl, &IID_IPersistFile, (void **)&pf)) && pf) {
-        pf->lpVtbl->Save(pf, lnk, TRUE);
+        saved = SUCCEEDED(pf->lpVtbl->Save(pf, lnk, TRUE));
         pf->lpVtbl->Release(pf);
     }
     sl->lpVtbl->Release(sl);
+    return saved;
 }
 
 /* Create the desktop and start-menu shortcuts once per entry path. No admin, no HKLM.
@@ -133,7 +151,9 @@ static void ensure_shortcuts(const wchar_t *exe, const wchar_t *work)
     _snwprintf(marker, MAX_PATH * 2, L"%ls\\QianXun\\entry-path.txt", root);
     marker[MAX_PATH * 2 - 1] = 0;
     int have = read_marker(marker, saved, MAX_PATH * 2);
-    if (have && wcscmp(saved, exe) == 0) return;
+    /* Refresh existing links to migrate identity metadata. Do not resurrect
+     * shortcuts that the user deliberately removed at this same entry path. */
+    int same_entry = have && wcscmp(saved, exe) == 0;
     wchar_t desk[MAX_PATH];
     if (SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, desk) != S_OK) return;
     wchar_t lnk[MAX_PATH * 2];
@@ -143,15 +163,16 @@ static void ensure_shortcuts(const wchar_t *exe, const wchar_t *work)
     HRESULT hr = CoInitialize(NULL);
     int uninit = SUCCEEDED(hr);
     if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) return;
-    save_link(lnk, exe, work);
+    int links_ok = 1;
+    if (!same_entry || exists_file(lnk)) links_ok &= save_link(lnk, exe, work);
     wchar_t programs[MAX_PATH];
     if (SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, programs) == S_OK) {
         wchar_t menu[MAX_PATH * 2];
         _snwprintf(menu, MAX_PATH * 2, L"%ls\\\u5343\u5bfb.lnk", programs);
         menu[MAX_PATH * 2 - 1] = 0;
-        save_link(menu, exe, work);
+        if (!same_entry || exists_file(menu)) links_ok &= save_link(menu, exe, work);
     }
-    write_marker(marker, exe);
+    if (links_ok) write_marker(marker, exe);
     if (uninit) CoUninitialize();
 }
 

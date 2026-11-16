@@ -1,0 +1,16 @@
+---
+description: 桌面软件必须保持产品名称、图标及任务栏固定入口一致，禁止暴露解释器身份
+alwaysApply: true
+---
+
+# 桌面应用身份与固定入口
+
+- 所有发布形态在启动、运行、固定、退出及再次启动时均须使用产品名称和图标，不能显示 Python／pythonw 等宿主的默认身份。
+- Windows 的稳定产品启动器须嵌入图标；进程、主窗口与快捷方式使用同一个不含版本／路径的 AppUserModelID。千寻为 `QianXun.FileSearch`。
+- Python／Qt 程序在显示主窗口前设置窗口属性 `AppUserModel.ID`、`RelaunchCommand`、`RelaunchDisplayNameResource`、`RelaunchIconResource`。仅 `setWindowIcon` 或进程 AppID 不足以保证固定项正确。
+- Relaunch 命令、快捷方式目标、图标路径必须指向持久产品入口，不能指向解释器或临时解压目录；中文／空格路径必须正确引用。无持久入口的开发运行禁止固定。
+- 更新快捷方式时迁移旧 AppID／图标，不受旧完成标记阻挡；不反复创建用户删除的快捷方式。不修改全局解释器资源，不清空用户任务栏或图标缓存。
+- 退出前清除窗口属性，释放 COM 资源。遵守 Win7／Win10 等项目最低版本约束。
+- 麒麟／Linux 对齐窗口图标、desktop 文件的 Name／Icon／Exec、WM_CLASS／StartupWMClass，并验证固定后的重启。
+- 验证首次启动、固定、完全退出、固定项重启、单实例复用、中文／空格路径、升级与便携目录迁移；原生属性读回不等同于真实任务栏视觉验收。
+- 历史错误固定项可能需要用户取消旧固定并重新固定；说明步骤，不动其他应用的固定项。
